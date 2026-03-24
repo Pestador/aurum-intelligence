@@ -1,0 +1,73 @@
+export const goldBullishRetestFixture = {
+  workflowId: "wf-bullish-retest",
+  userProfile: {
+    style: "selective-intraday",
+    minRR: 6,
+    maxEventRiskMinutes: 120,
+    strictSignalOnly: true,
+  },
+  marketSnapshot: {
+    symbol: "XAU/USD",
+    timestampUtc: "2026-03-24T07:30:00Z",
+    session: {
+      name: "london",
+      minutesToTransition: 95,
+    },
+    price: {
+      current: 2327.4,
+      sessionOpen: 2319.8,
+      dayHigh: 2330.1,
+      dayLow: 2317.2,
+    },
+    rates: {
+      usdTrend: "soft",
+      realYieldTrend: "lower",
+      nominalYieldTrend: "lower",
+      correlationState: "normal",
+    },
+    macro: {
+      inflationSurprise: "cooling",
+      fedTone: "patient",
+      safeHavenDemand: "moderate",
+      riskSentiment: "mixed",
+      summary: "Gold is supported by easing real rates and a soft dollar tone.",
+    },
+    calendar: {
+      nextHighImpactMinutes: 180,
+      policyTone: "dovish",
+      nextEvents: [
+        { id: "event-pmi-2026-03-24", name: "PMI", impact: "medium" },
+      ],
+    },
+    positioning: {
+      futuresCrowding: "moderateLong",
+      etfFlow: "inflow",
+      geopolitics: "elevated",
+      intermarket: "bullish",
+    },
+    technicalContext: {
+      directionBias: "bullish",
+      regimeHint: "trend",
+      structureScore: 84,
+      triggerScore: 81,
+      liquidityScore: 77,
+      volatilityScore: 72,
+      sessionScore: 82,
+      entryZone: { low: 2324.8, high: 2326.1 },
+      triggerType: "retest",
+      confirmationRules: ["Price must hold above the retest shelf and reclaim momentum."],
+      cancelBeforeEntry: ["If price accepts back below 2316.6, stand down."],
+      stopLoss: { price: 2316.6, reason: "Below the retest shelf and structural invalidation." },
+      targets: [
+        { price: 2385.9, note: "first expansion" },
+        { price: 2410.8, note: "range objective" },
+        { price: 2436.4, note: "extended target" },
+      ],
+      invalidation: "Acceptance below 2316.6 invalidates the breakout-retest thesis.",
+      bestSession: "london",
+      runwayScore: 8.4,
+      thesis: "Bullish retest after reclaiming intraday structure.",
+      evidenceRefs: ["tech-htf", "tech-trigger"],
+    },
+  },
+};

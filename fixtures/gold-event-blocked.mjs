@@ -1,0 +1,72 @@
+export const goldEventBlockedFixture = {
+  workflowId: "wf-event-blocked",
+  userProfile: {
+    style: "selective-intraday",
+    minRR: 6,
+    maxEventRiskMinutes: 120,
+    strictSignalOnly: true,
+  },
+  marketSnapshot: {
+    symbol: "XAU/USD",
+    timestampUtc: "2026-03-24T12:40:00Z",
+    session: {
+      name: "new_york",
+      minutesToTransition: 22,
+    },
+    price: {
+      current: 2334.9,
+      sessionOpen: 2331.1,
+      dayHigh: 2338.2,
+      dayLow: 2326.8,
+    },
+    rates: {
+      usdTrend: "strong",
+      realYieldTrend: "higher",
+      nominalYieldTrend: "higher",
+      correlationState: "normal",
+    },
+    macro: {
+      inflationSurprise: "hot",
+      fedTone: "hawkish",
+      safeHavenDemand: "moderate",
+      riskSentiment: "risk_on",
+      summary: "Gold is under pressure from stronger yields and a firmer dollar.",
+    },
+    calendar: {
+      nextHighImpactMinutes: 18,
+      policyTone: "hawkish",
+      nextEvents: [
+        { id: "event-cpi-2026-03-24", name: "CPI", impact: "high" },
+      ],
+    },
+    positioning: {
+      futuresCrowding: "extremeLong",
+      etfFlow: "outflow",
+      geopolitics: "normal",
+      intermarket: "bearish",
+    },
+    technicalContext: {
+      directionBias: "bullish",
+      regimeHint: "transition",
+      structureScore: 63,
+      triggerScore: 48,
+      liquidityScore: 54,
+      volatilityScore: 69,
+      sessionScore: 44,
+      entryZone: { low: 2332.0, high: 2334.2 },
+      triggerType: "retest",
+      confirmationRules: ["Trigger is not clean enough before CPI."],
+      cancelBeforeEntry: ["If CPI is within 30 minutes, stand down."],
+      stopLoss: { price: 2325.9, reason: "Below the local structure shelf." },
+      targets: [
+        { price: 2346.0, note: "measured move" },
+        { price: 2350.8, note: "secondary target" },
+      ],
+      invalidation: "Acceptance below 2325.9 invalidates the setup.",
+      bestSession: "new_york",
+      runwayScore: 3.4,
+      thesis: "Late bullish continuation before event risk.",
+      evidenceRefs: ["tech-ltf"],
+    },
+  },
+};
