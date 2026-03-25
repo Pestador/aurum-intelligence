@@ -30,17 +30,55 @@ function extractOutputText(payload) {
   return parts.join("\n\n").trim();
 }
 
+function extractJsonObject(text = "") {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue into loose extraction.
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const maybeJson = trimmed.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(maybeJson);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function normalizeDirection(direction = "neutral") {
+  const normalized = String(direction || "").toLowerCase();
+  if (["bullish", "bearish", "neutral", "mixed"].includes(normalized)) return normalized;
+  if (normalized === "long") return "bullish";
+  if (normalized === "short") return "bearish";
+  return "neutral";
+}
+
+function normalizeConfidence(value, fallback = 0.5) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed > 1) return Math.min(1, Math.max(0, parsed / 100));
+  return Math.min(1, Math.max(0, parsed));
+}
+
 async function fileToDataUrl(filePath) {
   const buffer = await fs.readFile(filePath);
   const mimeType = guessMimeType(filePath);
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
-function defaultChartPrompt(symbol = "XAU/USD") {
+function defaultChartPrompt(symbol = "XAU/USD", timeframe = "unknown") {
   return [
-    `Inspect this ${symbol} chart screenshot.`,
-    "Describe the visible market structure, probable directional bias, nearby support/resistance or sweep areas, and whether the chart looks tradeable right now.",
-    "Be explicit about uncertainty and avoid pretending to know hidden indicators that are not visible.",
+    `Inspect this ${symbol} chart screenshot on timeframe ${timeframe}.`,
+    "Return a strict JSON object with keys: summary, direction (bullish|bearish|neutral|mixed), confidence (0-1), score (0-100), keyLevels (array of numbers), caveats (array of strings).",
+    "Base the output only on what is visible in the chart image and be explicit about uncertainty.",
   ].join(" ");
 }
 
@@ -52,7 +90,8 @@ export function createOpenAIVisionProvider({
   async function analyzeChartImage({
     imagePath,
     symbol = "XAU/USD",
-    prompt = defaultChartPrompt(symbol),
+    timeframe = "unknown",
+    prompt = defaultChartPrompt(symbol, timeframe),
   } = {}) {
     if (!apiKey) {
       return {
@@ -104,11 +143,27 @@ export function createOpenAIVisionProvider({
     }
 
     const text = extractOutputText(payload);
+    const parsed = extractJsonObject(text);
+    const direction = normalizeDirection(parsed?.direction);
+    const confidence = normalizeConfidence(parsed?.confidence, 0.55);
+    const score = Number.isFinite(Number(parsed?.score)) ? Number(parsed.score) : null;
+    const keyLevels = Array.isArray(parsed?.keyLevels)
+      ? parsed.keyLevels.map((value) => Number(value)).filter(Number.isFinite)
+      : [];
+    const caveats = Array.isArray(parsed?.caveats)
+      ? parsed.caveats.map((item) => String(item))
+      : [];
+
     return {
       status: "completed",
       provider: "openai",
       model,
-      summary: text || "Vision model returned without a text summary.",
+      summary: parsed?.summary || text || "Vision model returned without a text summary.",
+      direction,
+      confidence,
+      score,
+      keyLevels,
+      caveats,
       raw: payload,
     };
   }

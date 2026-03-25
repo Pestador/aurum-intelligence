@@ -3,7 +3,10 @@ const state = {
   workflows: [],
   fixtures: [],
   latestResult: null,
+  latestRaw: null,
   vision: null,
+  visionMonitor: null,
+  merged: null,
 };
 
 function $(id) {
@@ -22,6 +25,37 @@ function toNumber(value) {
 function formatPrice(value) {
   const parsed = toNumber(value);
   return parsed === null ? "n/a" : parsed.toFixed(2);
+}
+
+function normalizeDirection(value = "neutral") {
+  const normalized = String(value).toLowerCase();
+  if (normalized === "long") return "bullish";
+  if (normalized === "short") return "bearish";
+  if (["bullish", "bearish", "neutral", "mixed"].includes(normalized)) return normalized;
+  return "neutral";
+}
+
+function parseTimeframesInput(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return ["1", "5", "15", "60", "240"];
+  return raw
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .map((item) => {
+      if (item === "1m") return "1";
+      if (item === "5m") return "5";
+      if (item === "15m") return "15";
+      if (item === "1h") return "60";
+      if (item === "4h") return "240";
+      return item;
+    })
+    .filter(Boolean);
+}
+
+function parseCycles(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.min(20, Math.floor(parsed)));
 }
 
 async function fetchJson(url, options) {
@@ -60,12 +94,8 @@ function getRuntimeMode(health, result) {
   if (healthMode) return healthMode;
 
   const source = result?.marketSnapshot?.source || result?.marketSnapshot?.health?.source || "";
-  if (typeof source === "string" && source.includes("live")) {
-    return "live";
-  }
-  if (typeof source === "string" && source.includes("fixture")) {
-    return "fixture";
-  }
+  if (typeof source === "string" && source.includes("live")) return "live";
+  if (typeof source === "string" && source.includes("fixture")) return "fixture";
   return "fixture";
 }
 
@@ -139,23 +169,21 @@ function updateRuntimePanel({ health = null, result = null } = {}) {
   }
 }
 
-function clearElement(element) {
-  if (!element) return;
-  element.textContent = "";
-}
-
-function addRow(container, label, value) {
+function addSection(container, title, lines = []) {
   if (!container) return;
-  const row = document.createElement("div");
-  row.className = "section";
-  const labelEl = document.createElement("div");
-  labelEl.className = "section-title";
-  labelEl.textContent = label;
-  const valueEl = document.createElement("div");
-  valueEl.textContent = value;
-  row.appendChild(labelEl);
-  row.appendChild(valueEl);
-  container.appendChild(row);
+  const card = document.createElement("div");
+  card.className = "section";
+  const heading = document.createElement("div");
+  heading.className = "section-title";
+  heading.textContent = title;
+  card.appendChild(heading);
+
+  for (const line of lines) {
+    const el = document.createElement("div");
+    el.textContent = String(line);
+    card.appendChild(el);
+  }
+  container.appendChild(card);
 }
 
 function renderCandidate(result) {
@@ -168,42 +196,20 @@ function renderCandidate(result) {
   bodyEl.innerHTML = "";
 
   if (candidate) {
-    const card = document.createElement("div");
-    card.className = "section";
-    const title = document.createElement("div");
-    title.className = "section-title";
-    title.textContent = "Candidate";
-    card.appendChild(title);
-
-    addRow(card, "Direction", textOr(candidate.direction));
-    addRow(card, "Status", textOr(candidate.status));
-    addRow(card, "Entry", candidate.entryZone ? `${formatPrice(candidate.entryZone.low)} - ${formatPrice(candidate.entryZone.high)}` : "n/a");
-    addRow(card, "Stop", candidate.stopLoss ? formatPrice(candidate.stopLoss.price) : "n/a");
-    addRow(card, "Targets", Array.isArray(candidate.takeProfitLevels) && candidate.takeProfitLevels.length
-      ? candidate.takeProfitLevels.map((target) => formatPrice(target?.price)).filter((item) => item !== "n/a").join(", ")
-      : "n/a");
-    addRow(card, "RR", textOr(candidate.rrProfile?.primary));
-    addRow(card, "Trigger", textOr(candidate.triggerType));
-    addRow(card, "Best Session", textOr(candidate.bestSession));
-    bodyEl.appendChild(card);
+    addSection(bodyEl, "Candidate", [
+      `Direction: ${textOr(candidate.direction)}`,
+      `Status: ${textOr(candidate.status)}`,
+      `Entry: ${candidate.entryZone ? `${formatPrice(candidate.entryZone.low)} - ${formatPrice(candidate.entryZone.high)}` : "n/a"}`,
+      `Stop: ${candidate.stopLoss ? formatPrice(candidate.stopLoss.price) : "n/a"}`,
+      `Targets: ${Array.isArray(candidate.takeProfitLevels) && candidate.takeProfitLevels.length ? candidate.takeProfitLevels.map((target) => formatPrice(target?.price)).filter((item) => item !== "n/a").join(", ") : "n/a"}`,
+      `RR: ${textOr(candidate.rrProfile?.primary)}`,
+      `Trigger: ${textOr(candidate.triggerType)}`,
+      `Best Session: ${textOr(candidate.bestSession)}`,
+    ]);
   }
 
   for (const section of reportSections) {
-    const card = document.createElement("div");
-    card.className = "section";
-    const title = document.createElement("div");
-    title.className = "section-title";
-    title.textContent = textOr(section?.title, "Section");
-    const body = document.createElement("div");
-    const lines = Array.isArray(section?.body) ? section.body : [];
-    for (const line of lines) {
-      const lineEl = document.createElement("div");
-      lineEl.textContent = String(line);
-      body.appendChild(lineEl);
-    }
-    card.appendChild(title);
-    card.appendChild(body);
-    bodyEl.appendChild(card);
+    addSection(bodyEl, textOr(section?.title, "Section"), Array.isArray(section?.body) ? section.body : []);
   }
 }
 
@@ -222,17 +228,10 @@ function renderExecutionPlan(result) {
     return;
   }
 
-  const container = document.createElement("div");
-  container.className = "result-body";
-
-  addRow(container, "Entry Plan", textOr(executionPlan.entryPlan));
-  addRow(container, "Stop Plan", textOr(executionPlan.stopPlan));
-  addRow(container, "Targets", Array.isArray(executionPlan.targetPlan) && executionPlan.targetPlan.length
-    ? executionPlan.targetPlan.join(" | ")
-    : "n/a");
-
   execEl.innerHTML = "";
-  execEl.appendChild(container);
+  addSection(execEl, "Entry Plan", [textOr(executionPlan.entryPlan)]);
+  addSection(execEl, "Stop Plan", [textOr(executionPlan.stopPlan)]);
+  addSection(execEl, "Targets", [Array.isArray(executionPlan.targetPlan) && executionPlan.targetPlan.length ? executionPlan.targetPlan.join(" | ") : "n/a"]);
 }
 
 function buildSignalModel(result) {
@@ -242,7 +241,6 @@ function buildSignalModel(result) {
 
   const points = [];
   const bands = [];
-
   const currentPrice = toNumber(market?.price?.current ?? market?.lastPrice ?? null);
   const dayHigh = toNumber(market?.price?.dayHigh ?? null);
   const dayLow = toNumber(market?.price?.dayLow ?? null);
@@ -251,42 +249,24 @@ function buildSignalModel(result) {
   const stop = toNumber(candidate?.stopLoss?.price ?? technical?.stopLoss?.price ?? null);
   const targets = Array.isArray(candidate?.takeProfitLevels) ? candidate.takeProfitLevels : [];
 
-  if (Number.isFinite(currentPrice)) {
-    points.push({ label: "Current", value: currentPrice, kind: "current", note: "Latest price" });
-  }
-  if (Number.isFinite(dayHigh)) {
-    points.push({ label: "Day High", value: dayHigh, kind: "reference", note: "Session boundary" });
-  }
-  if (Number.isFinite(dayLow)) {
-    points.push({ label: "Day Low", value: dayLow, kind: "reference", note: "Session boundary" });
-  }
+  if (Number.isFinite(currentPrice)) points.push({ label: "Current", value: currentPrice, kind: "current" });
+  if (Number.isFinite(dayHigh)) points.push({ label: "Day High", value: dayHigh, kind: "reference" });
+  if (Number.isFinite(dayLow)) points.push({ label: "Day Low", value: dayLow, kind: "reference" });
   if (Number.isFinite(entryLow) && Number.isFinite(entryHigh)) {
     bands.push({ label: "Entry Zone", low: Math.min(entryLow, entryHigh), high: Math.max(entryLow, entryHigh), kind: "entry" });
   }
-  if (Number.isFinite(stop)) {
-    points.push({ label: "Stop", value: stop, kind: "stop", note: "Invalidation" });
-  }
+  if (Number.isFinite(stop)) points.push({ label: "Stop", value: stop, kind: "stop" });
   for (const [index, target] of targets.entries()) {
     const price = toNumber(target?.price);
     if (price === null) continue;
-    points.push({
-      label: `Target ${index + 1}`,
-      value: price,
-      kind: "target",
-      note: target?.note || "Target ladder",
-    });
+    points.push({ label: `Target ${index + 1}`, value: price, kind: "target" });
   }
 
   const extraLevels = Array.isArray(technical?.levels) ? technical.levels : [];
   for (const level of extraLevels.slice(0, 4)) {
     const value = toNumber(level?.price);
     if (value === null) continue;
-    points.push({
-      label: level?.source || "Key Level",
-      value,
-      kind: "reference",
-      note: textOr(level?.type),
-    });
+    points.push({ label: level?.source || "Key Level", value, kind: "reference" });
   }
 
   return { points, bands };
@@ -335,7 +315,7 @@ function renderSignalVisual(result) {
     const pct = (value - min) / span;
     return height - bottomPad - pct * (height - topPad - bottomPad);
   };
-  const uniqueBands = [...bands];
+
   const rows = [];
   for (let index = 0; index < 6; index += 1) {
     const value = min + (span / 5) * index;
@@ -344,7 +324,7 @@ function renderSignalVisual(result) {
     rows.push(`<text x="18" y="${(y + 4).toFixed(1)}" class="signal-note">${value.toFixed(2)}</text>`);
   }
 
-  const bandMarkup = uniqueBands.map((band) => {
+  const bandMarkup = bands.map((band) => {
     const y1 = scaleY(band.high);
     const y2 = scaleY(band.low);
     const top = Math.min(y1, y2);
@@ -359,15 +339,15 @@ function renderSignalVisual(result) {
   const pointMarkup = points.map((point) => {
     const y = scaleY(point.value);
     const className = point.kind === "stop" ? "signal-stop" : point.kind === "target" ? "signal-target" : point.kind === "current" ? "signal-marker" : "signal-axis";
-    const labelX = rightPad + 8;
     return `
       <line x1="${leftPad}" x2="${rightPad}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="${className}" />
       <circle cx="${leftPad + 8}" cy="${y.toFixed(1)}" r="4.5" class="signal-marker" />
-      <text x="${labelX}" y="${(y + 4).toFixed(1)}" class="signal-marker-text">${point.label}: ${formatPrice(point.value)}</text>
+      <text x="${rightPad + 8}" y="${(y + 4).toFixed(1)}" class="signal-marker-text">${point.label}: ${formatPrice(point.value)}</text>
     `;
   }).join("");
 
-  const svg = `
+  container.className = "signal-visual";
+  container.innerHTML = `
     <svg class="signal-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Signal visualization">
       <defs>
         <linearGradient id="signal-bg" x1="0" x2="1" y1="0" y2="1">
@@ -382,9 +362,6 @@ function renderSignalVisual(result) {
       <text x="18" y="18" class="signal-note">Price ladder and trade structure</text>
     </svg>
   `;
-
-  container.className = "signal-visual";
-  container.innerHTML = svg;
 
   const legendItems = [
     { label: "Current price", value: textOr(formatPrice(points.find((point) => point.kind === "current")?.value)), color: "#edf1f8" },
@@ -404,26 +381,25 @@ function renderSignalVisual(result) {
   `).join("");
 }
 
-function renderVision(result) {
+function renderVisionPreviewFromCapture(capture = null, message = null) {
   const statusEl = $("vision-status");
   const imageEl = $("vision-image");
   const placeholderEl = $("vision-placeholder");
   const previewEl = imageEl?.parentElement;
   if (!statusEl || !imageEl || !placeholderEl || !previewEl) return;
 
-  const vision = state.vision || {};
-  const imageUrl = vision.imageUrl || vision.previewUrl || vision.url || vision.dataUrl || null;
+  const imageUrl = capture?.publicPath || capture?.imageUrl || capture?.url || null;
   if (imageUrl) {
     imageEl.src = imageUrl;
-    imageEl.alt = `TradingView chart preview for ${vision.symbol || "XAUUSD"}`;
+    imageEl.alt = `TradingView chart preview for ${capture?.symbol || "XAUUSD"}`;
     previewEl.classList.add("has-image");
-    statusEl.textContent = `Captured ${vision.symbol || "XAUUSD"} from ${vision.source || "TradingView"}.`;
+    statusEl.textContent = message || `Captured ${capture?.symbol || "XAUUSD"} (${capture?.timeframeLabel || capture?.timeframe || "chart"}).`;
     placeholderEl.innerHTML = "";
     const title = document.createElement("strong");
     title.textContent = "Latest capture ready.";
     const note = document.createElement("span");
     note.className = "muted small";
-    note.textContent = textOr(vision.note, "The screenshot was returned successfully.");
+    note.textContent = capture?.chartUrl || "Screenshot captured successfully.";
     placeholderEl.appendChild(title);
     placeholderEl.appendChild(note);
     return;
@@ -431,44 +407,90 @@ function renderVision(result) {
 
   previewEl.classList.remove("has-image");
   imageEl.removeAttribute("src");
-  const fallback = result?.marketSnapshot?.source
-    ? `No screenshot returned yet. Latest market source: ${result.marketSnapshot.source}.`
-    : "Waiting for a capture request.";
-  statusEl.textContent = textOr(vision.message || fallback);
-  placeholderEl.innerHTML = "";
-  const title = document.createElement("strong");
-  title.textContent = "Chart preview will appear here.";
-  const note = document.createElement("span");
-  note.className = "muted small";
-  note.textContent = "If the capture endpoint returns an image URL, the screenshot will render here.";
-  placeholderEl.appendChild(title);
-  placeholderEl.appendChild(note);
+  statusEl.textContent = message || "No screenshot returned yet.";
+  placeholderEl.innerHTML = `
+    <strong>Chart preview will appear here.</strong>
+    <span class="muted small">If capture returns an image URL, the screenshot will render here.</span>
+  `;
 }
 
 function renderResult(result) {
   const headlineEl = $("result-headline");
   const summaryEl = $("result-summary");
-  const rawEl = $("raw-json");
-
-  if (!headlineEl || !summaryEl || !rawEl) return;
+  if (!headlineEl || !summaryEl) return;
 
   state.latestResult = result || null;
   updateRuntimePanel({ health: state.health, result });
   renderCandidate(result);
   renderExecutionPlan(result);
   renderSignalVisual(result);
-  renderVision(result);
 
   if (!result) {
     headlineEl.textContent = "No run yet.";
     summaryEl.textContent = "";
-    rawEl.textContent = "Run a workflow to view JSON output.";
     return;
   }
 
   headlineEl.textContent = `${textOr(result.finalStatus, "NO_STATUS").toUpperCase()} - ${textOr(result.report?.headline, "No headline")}`;
   summaryEl.textContent = textOr(result.report?.summary, "No summary available.");
-  rawEl.textContent = JSON.stringify(result, null, 2);
+}
+
+function setRawPayload(payload) {
+  state.latestRaw = payload || null;
+  const rawEl = $("raw-json");
+  if (!rawEl) return;
+  rawEl.textContent = payload ? JSON.stringify(payload, null, 2) : "Run a workflow to view JSON output.";
+}
+
+function renderMergedDecision(merged = null) {
+  const headlineEl = $("merged-headline");
+  const summaryEl = $("merged-summary");
+  const bodyEl = $("merged-body");
+  if (!headlineEl || !summaryEl || !bodyEl) return;
+
+  state.merged = merged || null;
+  bodyEl.innerHTML = "";
+
+  if (!merged) {
+    headlineEl.textContent = "No merged decision yet.";
+    summaryEl.textContent = "";
+    return;
+  }
+
+  headlineEl.textContent = `${textOr(merged.finalStatus, "unknown").toUpperCase()} - confidence ${toNumber(merged.mergedConfidence)?.toFixed(2) || "n/a"}`;
+  summaryEl.textContent = textOr(merged.summary, "No merged summary.");
+
+  addSection(bodyEl, "API", [
+    `Status: ${textOr(merged.api?.status)}`,
+    `Direction: ${textOr(merged.api?.direction)}`,
+    `Confidence: ${toNumber(merged.api?.confidence)?.toFixed(2) || "n/a"}`,
+  ]);
+
+  addSection(bodyEl, "Vision", [
+    `Status: ${textOr(merged.vision?.status)}`,
+    `Direction: ${textOr(merged.vision?.direction)}`,
+    `Confidence: ${toNumber(merged.vision?.confidence)?.toFixed(2) || "n/a"}`,
+    `Weighted score: ${toNumber(merged.vision?.weightedScore)?.toFixed(2) || "n/a"}`,
+  ]);
+
+  addSection(bodyEl, "Alignment", [
+    `Verdict: ${textOr(merged.alignment?.verdict)}`,
+    `Score: ${toNumber(merged.alignment?.score)?.toFixed(2) || "n/a"}`,
+  ]);
+
+  const voteLines = Array.isArray(merged.vision?.timeframeVotes)
+    ? merged.vision.timeframeVotes.map((vote) => `${vote.timeframeLabel || vote.timeframe}: ${vote.direction} (${toNumber(vote.confidence)?.toFixed(2) || "n/a"})`)
+    : [];
+  addSection(bodyEl, "Timeframe Votes", voteLines.length ? voteLines : ["No timeframe votes available."]);
+
+  addSection(bodyEl, "Reasons", Array.isArray(merged.reasons) && merged.reasons.length ? merged.reasons : ["No reasons supplied."]);
+}
+
+function getVisionRequestOptions() {
+  const symbol = ($("vision-symbol")?.value || "XAUUSD").trim() || "XAUUSD";
+  const timeframes = parseTimeframesInput($("vision-timeframes")?.value || "1,5,15,60,240");
+  const cycles = parseCycles($("vision-cycles")?.value || "1");
+  return { symbol, timeframes, cycles };
 }
 
 async function loadInitial() {
@@ -499,15 +521,11 @@ async function loadInitial() {
 }
 
 async function runWorkflow() {
-  const workflowEl = $("workflow-select");
-  const fixtureEl = $("fixture-select");
-  const marketModeEl = $("market-mode-select");
-  const symbolEl = $("market-symbol-input");
+  const workflowName = $("workflow-select")?.value || "morningBriefing";
+  const fixtureName = $("fixture-select")?.value || "bullishRetest";
+  const marketMode = $("market-mode-select")?.value || "fixture";
+  const symbol = ($("market-symbol-input")?.value || "XAU/USD").trim() || "XAU/USD";
   const runStatus = $("run-status");
-  const workflowName = workflowEl?.value || "morningBriefing";
-  const fixtureName = fixtureEl?.value || "bullishRetest";
-  const marketMode = marketModeEl?.value || "fixture";
-  const symbol = (symbolEl?.value || "XAU/USD").trim() || "XAU/USD";
 
   if (runStatus) runStatus.textContent = "Running...";
   try {
@@ -515,51 +533,120 @@ async function runWorkflow() {
       method: "POST",
       body: JSON.stringify({ workflowName, fixtureName, marketMode, symbol }),
     });
-    renderResult(response?.finalState || response || null);
+    const finalState = response?.finalState || response || null;
+    renderResult(finalState);
+    renderMergedDecision(null);
+    setRawPayload(response);
     if (runStatus) runStatus.textContent = "Done";
   } catch (error) {
     if (runStatus) runStatus.textContent = `Error: ${error.message}`;
     renderResult(null);
+    setRawPayload({ error: error.message });
   }
 }
 
 async function captureVision() {
-  const symbolEl = $("vision-symbol");
   const statusEl = $("vision-status");
   const btn = $("vision-btn");
-  const symbol = (symbolEl?.value || "XAUUSD").trim() || "XAUUSD";
-
+  const { symbol } = getVisionRequestOptions();
   if (!statusEl) return;
+
   if (btn) btn.disabled = true;
   statusEl.textContent = `Capturing ${symbol}...`;
-
   try {
     const response = await fetchJson("/vision/capture", {
       method: "POST",
       body: JSON.stringify({ symbol }),
     });
 
+    const capture = response?.result?.capture || null;
     state.vision = {
       symbol,
-      source: response?.source || "TradingView",
-      imageUrl: response?.imageUrl || response?.previewUrl || response?.url || response?.dataUrl || null,
-      message: response?.message || `Capture requested for ${symbol}.`,
-      note: response?.note || response?.message || "",
+      capture,
+      message: response?.message || "Capture complete.",
     };
-    renderVision(state.latestResult);
-    statusEl.textContent = state.vision.imageUrl
-      ? `Captured ${symbol} successfully.`
-      : state.vision.message || `Capture requested for ${symbol}.`;
+    renderVisionPreviewFromCapture(capture, state.vision.message);
+    setRawPayload(response);
   } catch (error) {
-    state.vision = {
-      symbol,
-      source: "TradingView",
-      imageUrl: null,
-      message: `Capture unavailable: ${error.message}`,
-      note: "The backend vision endpoint is not reachable yet.",
-    };
-    renderVision(state.latestResult);
-    statusEl.textContent = state.vision.message;
+    renderVisionPreviewFromCapture(null, `Capture unavailable: ${error.message}`);
+    setRawPayload({ error: error.message });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runVisionMonitor() {
+  const statusEl = $("vision-status");
+  const btn = $("vision-monitor-btn");
+  const { symbol, timeframes, cycles } = getVisionRequestOptions();
+  if (!statusEl) return;
+
+  if (btn) btn.disabled = true;
+  statusEl.textContent = `Monitoring ${symbol} on ${timeframes.join(",")}...`;
+  try {
+    const response = await fetchJson("/vision/monitor", {
+      method: "POST",
+      body: JSON.stringify({
+        symbol,
+        timeframes,
+        cycles,
+        analyze: true,
+      }),
+    });
+
+    state.visionMonitor = response?.monitor || null;
+    const latestCapture = state.visionMonitor?.latestCycle?.capture?.captures?.at(-1) || null;
+    const aggregate = state.visionMonitor?.aggregate;
+    const message = aggregate?.summary || "Multi-timeframe monitor complete.";
+    renderVisionPreviewFromCapture(latestCapture, message);
+    setRawPayload(response);
+  } catch (error) {
+    renderVisionPreviewFromCapture(null, `Monitor unavailable: ${error.message}`);
+    setRawPayload({ error: error.message });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMergedDecision() {
+  const runStatus = $("run-status");
+  const visionStatus = $("vision-status");
+  const btn = $("merged-run-btn");
+  const workflowName = $("workflow-select")?.value || "intradayScan";
+  const fixtureName = $("fixture-select")?.value || "bullishRetest";
+  const marketMode = $("market-mode-select")?.value || "fixture";
+  const symbol = ($("market-symbol-input")?.value || "XAU/USD").trim() || "XAU/USD";
+  const { timeframes, cycles } = getVisionRequestOptions();
+
+  if (btn) btn.disabled = true;
+  if (runStatus) runStatus.textContent = "Running merged decision...";
+  if (visionStatus) visionStatus.textContent = "Coordinator is combining API + vision...";
+
+  try {
+    const response = await fetchJson("/decision/merged", {
+      method: "POST",
+      body: JSON.stringify({
+        workflowName,
+        fixtureName,
+        marketMode,
+        symbol,
+        timeframes,
+        cycles,
+        analyze: true,
+      }),
+    });
+
+    renderResult(response?.api?.finalState || null);
+    renderMergedDecision(response?.merged || null);
+    state.visionMonitor = response?.vision || null;
+    const latestCapture = state.visionMonitor?.latestCycle?.capture?.captures?.at(-1) || null;
+    renderVisionPreviewFromCapture(latestCapture, response?.merged?.summary || "Merged decision completed.");
+    setRawPayload(response);
+    if (runStatus) runStatus.textContent = "Merged decision done";
+  } catch (error) {
+    if (runStatus) runStatus.textContent = `Merged decision failed: ${error.message}`;
+    if (visionStatus) visionStatus.textContent = "Merged run failed.";
+    setRawPayload({ error: error.message });
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -579,9 +666,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (runStatus) runStatus.textContent = `Refresh failed: ${error.message}`;
     });
   });
+
   $("market-mode-select")?.addEventListener("change", (event) => {
     event.currentTarget.dataset.userChanged = "1";
   });
+
   $("run-btn")?.addEventListener("click", runWorkflow);
   $("vision-btn")?.addEventListener("click", captureVision);
+  $("vision-monitor-btn")?.addEventListener("click", runVisionMonitor);
+  $("merged-run-btn")?.addEventListener("click", runMergedDecision);
 });

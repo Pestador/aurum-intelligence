@@ -8,6 +8,7 @@
     "start": "node src/cli.js",
     "server": "node src/server.js",
     "vision:capture": "node src/vision/tradingview.js --symbol=XAUUSD",
+    "vision:monitor": "node src/vision/tradingview.js --multi=true --symbol=XAUUSD --timeframes=1,5,15,60,240",
     "test": "node --test --test-isolation=none --test-concurrency=1"
   },
   "engines": {

@@ -19,6 +19,8 @@ It includes:
 - Open a local dashboard at `http://localhost:3000/`
 - Switch between fixture mode and live mode from the dashboard
 - Capture a TradingView chart screenshot from the dashboard or CLI
+- Run automatic timeframe cycling (`1m`, `5m`, `15m`, `1h`, `4h`)
+- Get per-timeframe vision analysis and a merged final decision (`API + vision`)
 - Optionally send captured charts to a vision model if `OPENAI_API_KEY` is configured
 
 ## Quick Start
@@ -53,6 +55,8 @@ The dashboard now includes:
 - fixture/live mode selector
 - symbol input
 - TradingView chart capture
+- automatic multi-timeframe monitor
+- merged decision coordinator output
 - signal visualization for entry, stop, targets, and key levels
 - full report, execution plan, and raw JSON
 
@@ -66,6 +70,8 @@ The dashboard now includes:
 - `POST /run`
 - `GET /vision/latest`
 - `POST /vision/capture`
+- `POST /vision/monitor`
+- `POST /decision/merged`
 - `GET /screenshots/<file>`
 
 Example `POST /run` body:
@@ -127,8 +133,22 @@ Useful options:
 - `--headless=false` to open a visible browser window
 - `--exchange=OANDA` to change the TradingView symbol prefix
 - `--output=screenshots/my-chart.png` to choose the output file
+- `--timeframe=15` for a single timeframe
+- `--multi=true --timeframes=1,5,15,60,240` for automatic multi-timeframe cycling
 
-### 3. Optional chart-vision analysis
+### 3. Multi-timeframe monitor API
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/vision/monitor -ContentType "application/json" -Body '{"symbol":"XAUUSD","timeframes":["1","5","15","60","240"],"cycles":1,"analyze":true}'
+```
+
+### 4. Merged decision API (`API + chart vision`)
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/decision/merged -ContentType "application/json" -Body '{"workflowName":"intradayScan","marketMode":"live","symbol":"XAU/USD","timeframes":["1","5","15","60","240"],"cycles":1,"analyze":true}'
+```
+
+### 5. Optional chart-vision analysis
 
 If you want the system to inspect the captured chart image with a vision model, set:
 
@@ -153,6 +173,7 @@ The server will:
 - `npm run start`
 - `npm run server`
 - `npm run vision:capture`
+- `npm run vision:monitor`
 - `npm test`
 
 If PowerShell blocks `npm`, use:

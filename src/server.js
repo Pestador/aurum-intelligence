@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createAurumSystem } from "./index.js";
 import { createVisionService } from "./vision/service.js";
+import { mergeApiAndVisionDecision } from "./vision/merge-coordinator.js";
 
 const system = createAurumSystem();
 const port = Number(process.env.PORT || 3000);
@@ -10,6 +11,13 @@ const root = process.cwd();
 const webRoot = path.join(root, "web");
 const screenshotsRoot = path.join(root, "screenshots");
 const vision = createVisionService({ rootDir: root });
+
+function normalizeTradingViewSymbol(symbol = "XAU/USD") {
+  const raw = String(symbol || "").trim();
+  if (!raw) return "XAUUSD";
+  if (raw.includes(":")) return raw;
+  return raw.replace("/", "");
+}
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
@@ -142,6 +150,57 @@ const server = http.createServer(async (request, response) => {
         imageUrl: result?.capture?.publicPath || null,
         source: "TradingView",
         message: result?.analysis?.summary || "Chart capture completed.",
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/vision/monitor") {
+      const payload = await readJson(request);
+      const monitor = await vision.monitorTimeframes({
+        symbol: payload?.symbol || "XAUUSD",
+        timeframes: payload?.timeframes,
+        cycles: payload?.cycles,
+        cycleDelayMs: payload?.cycleDelayMs,
+        analyze: payload?.analyze,
+        headless: payload?.headless,
+        waitMs: payload?.waitMs,
+        exchange: payload?.exchange,
+      });
+      return sendJson(response, 200, {
+        status: "ok",
+        monitor,
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/decision/merged") {
+      const payload = await readJson(request);
+      const workflowResult = await system.runScenario({
+        workflowName: payload?.workflowName || "intradayScan",
+        fixtureName: payload?.fixtureName || "bullishRetest",
+        marketMode: payload?.marketMode,
+        symbol: payload?.symbol || "XAU/USD",
+      });
+      const monitor = await vision.monitorTimeframes({
+        symbol: normalizeTradingViewSymbol(payload?.symbol || "XAU/USD"),
+        timeframes: payload?.timeframes || ["1", "5", "15", "60", "240"],
+        cycles: payload?.cycles ?? 1,
+        cycleDelayMs: payload?.cycleDelayMs ?? 0,
+        analyze: payload?.analyze !== false,
+        headless: payload?.headless,
+        waitMs: payload?.waitMs,
+        exchange: payload?.exchange,
+      });
+
+      const merged = mergeApiAndVisionDecision({
+        apiWorkflow: workflowResult?.workflow,
+        apiFinalState: workflowResult?.finalState,
+        visionMonitor: monitor,
+      });
+
+      return sendJson(response, 200, {
+        status: "ok",
+        merged,
+        api: workflowResult,
+        vision: monitor,
       });
     }
 

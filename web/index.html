@@ -93,12 +93,22 @@
           <input id="vision-symbol" type="text" value="XAUUSD" autocomplete="off" />
         </label>
         <label>
+          <span class="label">Timeframes</span>
+          <input id="vision-timeframes" type="text" value="1,5,15,60,240" autocomplete="off" />
+        </label>
+        <label>
+          <span class="label">Cycles</span>
+          <input id="vision-cycles" type="number" min="1" max="20" value="1" />
+        </label>
+        <label>
           <span class="label">Capture Source</span>
           <input id="vision-source" type="text" value="TradingView" disabled />
         </label>
       </div>
       <div class="actions">
         <button id="vision-btn" class="accent-secondary">Capture Chart</button>
+        <button id="vision-monitor-btn" class="accent-secondary">Run TF Monitor</button>
+        <button id="merged-run-btn">Run Merged Decision</button>
         <span id="vision-status" class="muted">Waiting for a capture request.</span>
       </div>
       <div class="vision-preview" aria-live="polite">
@@ -108,6 +118,18 @@
           <span class="muted small">If the capture endpoint returns an image URL, the screenshot will render here.</span>
         </div>
       </div>
+    </section>
+
+    <section class="card card-span-2">
+      <div class="card-head">
+        <div>
+          <h2>Merged Decision</h2>
+          <p class="muted small">Coordinator output combining API analysis and multi-timeframe chart vision.</p>
+        </div>
+      </div>
+      <div id="merged-headline" class="headline muted">No merged decision yet.</div>
+      <div id="merged-summary" class="muted small"></div>
+      <div id="merged-body" class="result-body"></div>
     </section>
 
     <section class="card card-span-2">

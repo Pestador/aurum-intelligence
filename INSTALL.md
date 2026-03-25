@@ -18,6 +18,7 @@ It includes:
 - optional live gold data
 - optional TradingView browser capture
 - optional chart-vision analysis
+- optional multi-timeframe monitor and merged decision coordinator
 
 ## What You Need
 
@@ -166,6 +167,12 @@ If you want to see the browser window instead of running headless:
 node src/vision/tradingview.js --symbol=XAUUSD --headless=false
 ```
 
+For automatic timeframe cycling (`1m`, `5m`, `15m`, `1h`, `4h`):
+
+```powershell
+node src/vision/tradingview.js --multi=true --symbol=XAUUSD --timeframes=1,5,15,60,240
+```
+
 ## Optional: Chart Vision Analysis
 
 If you want the captured chart image to be inspected by a vision model:
@@ -188,6 +195,18 @@ or call:
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:3000/vision/capture -ContentType "application/json" -Body '{"symbol":"XAUUSD"}'
+```
+
+For multi-timeframe monitoring plus per-timeframe analysis:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/vision/monitor -ContentType "application/json" -Body '{"symbol":"XAUUSD","timeframes":["1","5","15","60","240"],"cycles":1,"analyze":true}'
+```
+
+For one-shot merged final decision (`API + vision`):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/decision/merged -ContentType "application/json" -Body '{"workflowName":"intradayScan","marketMode":"live","symbol":"XAU/USD","timeframes":["1","5","15","60","240"],"cycles":1,"analyze":true}'
 ```
 
 ## Running Tests
