@@ -49,6 +49,9 @@ Example request:
 Example response fields:
 - `workflow`
 - `finalState`
+- `telemetry`
+  - `auditTrail`
+- `operation`
 
 ## GET `/vision/latest`
 Returns latest chart-capture or monitor result.
@@ -77,6 +80,7 @@ Example response fields:
 - `imageUrl`
 - `source`
 - `message`
+- `operation`
 
 ## POST `/vision/monitor`
 Runs multi-timeframe capture + per-timeframe analysis.
@@ -104,6 +108,7 @@ Example response fields:
   - `cycles`
   - `latestCycle`
   - `aggregate`
+- `operation`
 
 ## POST `/decision/merged`
 Runs:
@@ -141,6 +146,25 @@ Example response fields:
   - `summary`
 - `api`
 - `vision`
+- `operation`
+
+## GET `/operations/history`
+Returns recent operation records emitted by the server.
+
+Query params:
+- `limit` (optional, default `60`, max `200`)
+
+Example response fields:
+- `status`
+- `total`
+- `items`
+  - `id`
+  - `ts`
+  - `type`
+  - `status`
+  - `summary`
+  - `request`
+  - `outcome`
 
 ## GET `/screenshots/<file>`
 Serves screenshot files from local `screenshots/`.

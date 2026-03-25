@@ -7,6 +7,18 @@ function safeClone(value) {
   return structuredClone(value);
 }
 
+function makeRunWorkflowId(base = "wf") {
+  return `${base}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function collectWorkflowAudit(runtime, workflowId) {
+  const records = runtime?.audit?.list?.();
+  if (!Array.isArray(records)) return [];
+  return records
+    .filter((entry) => entry?.payload?.workflowId === workflowId)
+    .map((entry) => safeClone(entry));
+}
+
 function createFixtureMarketProvider(fixtures) {
   return {
     async getSnapshot({ symbol = "XAU/USD", fixtureName = "bullishRetest" } = {}) {
@@ -112,8 +124,9 @@ export function createAurumSystem(options = {}) {
   } = {}) {
     const fixture = getFixtureByName(fixtureName);
     const mergedProfile = profile || fixture.userProfile || {};
+    const workflowId = makeRunWorkflowId(fixture.workflowId || "aurum");
     const result = await api.runNamedWorkflow(workflowName, {
-      workflowId: fixture.workflowId,
+      workflowId,
       userRequest: {
         symbol,
         fixtureName,
@@ -130,10 +143,15 @@ export function createAurumSystem(options = {}) {
         marketMode,
       },
     });
+    const finalState = extractFinalState(result);
+    const telemetry = {
+      auditTrail: collectWorkflowAudit(runtime, result?.workflowId || workflowId),
+    };
 
     return {
       workflow: result,
-      finalState: extractFinalState(result),
+      finalState,
+      telemetry,
     };
   }
 

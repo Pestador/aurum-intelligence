@@ -11,6 +11,7 @@ function ensureState(context) {
     technical: {},
     technicalEvidence: {},
     fundamentalEvidence: {},
+    agentIO: {},
   };
   return context.runtime.state;
 }
@@ -26,6 +27,10 @@ function round(value, digits = 2) {
   return Math.round(value * factor) / factor;
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
 function normalizePrompt(tools, promptKey, context, fallbackSystemPrompt = "") {
   const rendered = tools.prompts?.render?.(promptKey, {
     symbol: context.userRequest?.symbol || "XAU/USD",
@@ -35,6 +40,29 @@ function normalizePrompt(tools, promptKey, context, fallbackSystemPrompt = "") {
   return {
     system: rendered?.system || fallbackSystemPrompt,
     persona: rendered?.persona || null,
+  };
+}
+
+function recordAgentIO(state, agentName, {
+  input = null,
+  output = null,
+  prompt = null,
+  status = "completed",
+  summary = "",
+  confidence = 0,
+  startedAt = nowIso(),
+  completedAt = nowIso(),
+} = {}) {
+  state.agentIO[agentName] = {
+    agentName,
+    status,
+    summary,
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    startedAt,
+    completedAt,
+    prompt: prompt ? structuredClone(prompt) : null,
+    input: input ? structuredClone(input) : null,
+    output: output ? structuredClone(output) : null,
   };
 }
 
@@ -209,15 +237,37 @@ function createMarketDataAgent() {
     personaKey: "orchestrator",
     run: async (context, tools) => {
       const state = ensureState(context);
+      const startedAt = nowIso();
+      const input = {
+        symbol: context.userRequest?.symbol || "XAU/USD",
+        fixtureName: context.userRequest?.fixtureName || "bullishRetest",
+        marketMode: context.userRequest?.marketMode || context.runtime?.marketMode || "fixture",
+      };
       const snapshot = await tools.providers.market.getSnapshot({
         symbol: context.userRequest?.symbol || "XAU/USD",
         fixtureName: context.userRequest?.fixtureName || "bullishRetest",
+        marketMode: context.userRequest?.marketMode || context.runtime?.marketMode || "fixture",
       });
-      state.marketSnapshot = structuredClone(snapshot);
-      state.promptsUsed["market-data"] = {
+      const prompt = {
         system: "Load the snapshot, validate freshness, and hand off a normalized gold market state.",
         persona: { key: "orchestrator" },
       };
+      state.marketSnapshot = structuredClone(snapshot);
+      state.promptsUsed["market-data"] = {
+        system: prompt.system,
+        persona: prompt.persona,
+      };
+
+      recordAgentIO(state, "market-data", {
+        input,
+        output: snapshot,
+        prompt,
+        status: snapshot.health?.ok === false ? "rejected" : "completed",
+        summary: `Loaded ${snapshot.symbol || "XAU/USD"} snapshot from ${snapshot.source || "market-provider"} (${snapshot.liveData?.mode || "unknown"} mode).`,
+        confidence: snapshot.health?.ok === false ? 0.2 : 0.95,
+        startedAt,
+        completedAt: nowIso(),
+      });
 
       return createAgentReport({
         agentName: "market-data",
@@ -243,6 +293,7 @@ function wrapTechnicalAgent(agentDefinition) {
     personaKey: "technical",
     run: async (context, tools) => {
       const state = ensureState(context);
+      const startedAt = nowIso();
       const prompt = normalizePrompt(tools, "technicalAnalysis", context, "Analyze gold structure with precision.");
       const input = {
         marketSnapshot: state.marketSnapshot,
@@ -253,6 +304,16 @@ function wrapTechnicalAgent(agentDefinition) {
       state.technical[agentDefinition.name] = structuredClone(result);
       state.technicalEvidence[agentDefinition.name] = structuredClone(result.evidence?.[0] || {});
       state.promptsUsed[agentDefinition.name] = prompt;
+      recordAgentIO(state, agentDefinition.name, {
+        input,
+        output: result,
+        prompt,
+        status: result.status || "completed",
+        summary: result.summary || "",
+        confidence: result.confidence || 0,
+        startedAt,
+        completedAt: nowIso(),
+      });
 
       return createAgentReport({
         agentName: agentDefinition.name,
@@ -286,11 +347,22 @@ function wrapAnalyzeAgent({
     personaKey,
     run: async (context, tools) => {
       const state = ensureState(context);
+      const startedAt = nowIso();
       const prompt = normalizePrompt(tools, promptKey, context, systemPrompt);
       const input = buildInput(context, state, tools);
       const result = await analyze(input);
       state[targetKey] = structuredClone(result);
       state.promptsUsed[name] = prompt;
+      recordAgentIO(state, name, {
+        input,
+        output: result,
+        prompt,
+        status: "completed",
+        summary: buildSummary ? buildSummary(result) : result.summary || `${name} completed`,
+        confidence: result.confidence || 0,
+        startedAt,
+        completedAt: nowIso(),
+      });
 
       return createAgentReport({
         agentName: name,
@@ -529,6 +601,7 @@ export function extractFinalState(workflowResult) {
     report: state.finalReport || null,
     finalStatus: state.finalStatus || determineFinalStatus(state),
     promptsUsed: state.promptsUsed || {},
+    agentIO: state.agentIO || {},
     averageTechnicalConfidence: round(average(Object.values(state.technical || {}).map((result) => result.confidence || 0)), 3),
   };
 }

@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aurum Intelligence Dashboard</title>
+  <title>Aurum Agent Operations Console</title>
   <link rel="stylesheet" href="/web/style.css" />
 </head>
 <body>
   <header class="topbar">
     <div>
       <div class="eyebrow">Aurum Intelligence</div>
-      <h1>Gold Signal Console</h1>
+      <h1>Visual Agent Operations Console</h1>
+      <p class="muted small">Realtime mission-control view for orchestration, agent communication, vision cycles, and final signal quality.</p>
     </div>
     <div class="status">
       <span id="mode-pill" class="pill pill-muted">Mode: unknown</span>
@@ -23,36 +24,10 @@
     <section class="card card-span-2">
       <div class="card-head">
         <div>
-          <h2>Runtime Snapshot</h2>
-          <p class="muted small">Live mode awareness, provider health, and workflow coverage at a glance.</p>
+          <h2>Command Deck</h2>
+          <p class="muted small">Run API workflows, trigger TradingView vision capture, and execute merged coordinator decisions.</p>
         </div>
       </div>
-      <div class="status-grid">
-        <div class="status-block">
-          <span class="status-label">Mode</span>
-          <strong id="runtime-mode">Unknown</strong>
-          <span id="runtime-source" class="muted small">No data loaded yet.</span>
-        </div>
-        <div class="status-block">
-          <span class="status-label">Providers</span>
-          <strong id="runtime-providers">0</strong>
-          <span id="runtime-provider-note" class="muted small">Provider health will appear here.</span>
-        </div>
-        <div class="status-block">
-          <span class="status-label">Workflows</span>
-          <strong id="runtime-workflows">0</strong>
-          <span id="runtime-workflow-note" class="muted small">Available analysis workflows.</span>
-        </div>
-        <div class="status-block">
-          <span class="status-label">Fixtures</span>
-          <strong id="runtime-fixtures">0</strong>
-          <span id="runtime-fixture-note" class="muted small">Offline scenarios ready to run.</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Run Analysis</h2>
       <div class="grid">
         <label>
           <span class="label">Market Mode</span>
@@ -70,26 +45,11 @@
           <select id="fixture-select"></select>
         </label>
         <label>
-          <span class="label">Symbol</span>
+          <span class="label">API Symbol</span>
           <input id="market-symbol-input" type="text" value="XAU/USD" autocomplete="off" />
         </label>
-      </div>
-      <div class="actions">
-        <button id="run-btn">Run</button>
-        <span id="run-status" class="muted"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <div>
-          <h2>TradingView Vision</h2>
-          <p class="muted small">Capture a chart screenshot for symbol-level review when the backend endpoint is available.</p>
-        </div>
-      </div>
-      <div class="grid">
         <label>
-          <span class="label">Symbol</span>
+          <span class="label">Vision Symbol</span>
           <input id="vision-symbol" type="text" value="XAUUSD" autocomplete="off" />
         </label>
         <label>
@@ -97,36 +57,54 @@
           <input id="vision-timeframes" type="text" value="1,5,15,60,240" autocomplete="off" />
         </label>
         <label>
-          <span class="label">Cycles</span>
+          <span class="label">Vision Cycles</span>
           <input id="vision-cycles" type="number" min="1" max="20" value="1" />
-        </label>
-        <label>
-          <span class="label">Capture Source</span>
-          <input id="vision-source" type="text" value="TradingView" disabled />
         </label>
       </div>
       <div class="actions">
+        <button id="run-btn">Run Workflow</button>
         <button id="vision-btn" class="accent-secondary">Capture Chart</button>
-        <button id="vision-monitor-btn" class="accent-secondary">Run TF Monitor</button>
+        <button id="vision-monitor-btn" class="accent-secondary">Monitor Timeframes</button>
         <button id="merged-run-btn">Run Merged Decision</button>
-        <span id="vision-status" class="muted">Waiting for a capture request.</span>
       </div>
-      <div class="vision-preview" aria-live="polite">
-        <img id="vision-image" alt="TradingView chart preview" />
-        <div id="vision-placeholder" class="vision-placeholder">
-          <strong>Chart preview will appear here.</strong>
-          <span class="muted small">If the capture endpoint returns an image URL, the screenshot will render here.</span>
+      <div class="status-bar">
+        <span id="run-status" class="muted">Ready</span>
+        <span id="vision-status" class="muted">Vision idle</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Runtime Snapshot</h2>
+      <div class="status-grid">
+        <div class="status-block">
+          <span class="status-label">Mode</span>
+          <strong id="runtime-mode">Unknown</strong>
+          <span id="runtime-source" class="muted small">No data loaded yet.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Providers</span>
+          <strong id="runtime-providers">0</strong>
+          <span id="runtime-provider-note" class="muted small">Provider health appears here.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Workflows</span>
+          <strong id="runtime-workflows">0</strong>
+          <span id="runtime-workflow-note" class="muted small">Pipeline coverage.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Fixtures</span>
+          <strong id="runtime-fixtures">0</strong>
+          <span id="runtime-fixture-note" class="muted small">Scenario library readiness.</span>
         </div>
       </div>
     </section>
 
-    <section class="card card-span-2">
-      <div class="card-head">
-        <div>
-          <h2>Merged Decision</h2>
-          <p class="muted small">Coordinator output combining API analysis and multi-timeframe chart vision.</p>
-        </div>
+    <section class="card">
+      <h2>Decision Gates</h2>
+      <div id="decision-gates" class="result-body">
+        <div class="muted small">Run a workflow to see confluence, risk, critic, and final gate decisions.</div>
       </div>
+      <div class="divider"></div>
       <div id="merged-headline" class="headline muted">No merged decision yet.</div>
       <div id="merged-summary" class="muted small"></div>
       <div id="merged-body" class="result-body"></div>
@@ -135,34 +113,93 @@
     <section class="card card-span-2">
       <div class="card-head">
         <div>
-          <h2>Signal Visualization</h2>
-          <p class="muted small">A compact map of entry, stop, targets, and nearby key levels from the most recent run.</p>
+          <h2>Workflow Timeline</h2>
+          <p class="muted small">Stage-by-stage execution with agent outcomes and confidence.</p>
         </div>
       </div>
-      <div id="signal-visual" class="signal-visual empty">
-        <div class="signal-empty">
-          <strong>No signal loaded yet.</strong>
-          <span class="muted small">Run a workflow to see the entry stack and price levels.</span>
-        </div>
+      <div id="workflow-timeline" class="timeline">
+        <div class="muted small">No workflow run yet.</div>
       </div>
-      <div id="signal-legend" class="signal-legend"></div>
     </section>
 
     <section class="card card-span-2">
-      <h2>Result</h2>
-      <div id="result-headline" class="headline muted">No run yet.</div>
-      <div id="result-summary" class="muted small"></div>
-      <div id="result-body" class="result-body"></div>
+      <div class="card-head">
+        <div>
+          <h2>Agent Communication Graph</h2>
+          <p class="muted small">Flow view of orchestrator handoffs through the active execution path.</p>
+        </div>
+      </div>
+      <div id="agent-graph" class="graph-shell">
+        <div class="muted small">Run a workflow to render communication flow.</div>
+      </div>
+    </section>
+
+    <section class="card card-span-2">
+      <div class="card-head">
+        <div>
+          <h2>Agent Inspector</h2>
+          <p class="muted small">Inspect prompts, inputs, and outputs for each specialist agent.</p>
+        </div>
+      </div>
+      <div class="grid">
+        <label>
+          <span class="label">Agent</span>
+          <select id="agent-select"></select>
+        </label>
+      </div>
+      <div id="agent-meta" class="result-body"></div>
+      <div class="inspector-grid">
+        <section class="section">
+          <div class="section-title">Prompt</div>
+          <pre id="agent-prompt-json" class="codeblock small"></pre>
+        </section>
+        <section class="section">
+          <div class="section-title">Input</div>
+          <pre id="agent-input-json" class="codeblock small"></pre>
+        </section>
+        <section class="section">
+          <div class="section-title">Output</div>
+          <pre id="agent-output-json" class="codeblock small"></pre>
+        </section>
+      </div>
+    </section>
+
+    <section class="card card-span-2">
+      <div class="card-head">
+        <div>
+          <h2>Vision Timeframe Gallery</h2>
+          <p class="muted small">Screenshots and analysis output across 1m / 5m / 15m / 1h / 4h cycles.</p>
+        </div>
+      </div>
+      <div id="vision-gallery" class="vision-gallery">
+        <div class="muted small">Run capture or monitor to load timeframe screenshots.</div>
+      </div>
+      <div id="vision-votes" class="result-body"></div>
     </section>
 
     <section class="card">
-      <h2>Execution Plan</h2>
-      <div id="execution-body" class="result-body muted">Run a workflow to see an execution plan.</div>
+      <div class="card-head">
+        <div>
+          <h2>Operations History</h2>
+          <p class="muted small">Recent API, vision, and merge operations emitted by the backend.</p>
+        </div>
+        <button id="refresh-ops" class="ghost">Refresh Ops</button>
+      </div>
+      <div id="operations-list" class="result-body">
+        <div class="muted small">No operations recorded yet.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Audit Event Stream</h2>
+      <div id="audit-stream" class="result-body">
+        <div class="muted small">Audit trail appears after a workflow run.</div>
+      </div>
     </section>
 
     <section class="card card-span-2">
       <h2>Raw Payload</h2>
-      <pre id="raw-json" class="codeblock muted">Run a workflow to view JSON output.</pre>
+      <pre id="raw-json" class="codeblock muted">Run an action to view JSON output.</pre>
     </section>
   </main>
 

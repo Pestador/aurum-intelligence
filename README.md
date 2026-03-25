@@ -65,15 +65,15 @@ Then open:
 
 The dashboard now includes:
 
-- runtime snapshot and provider state
-- workflow runner
-- fixture/live mode selector
-- symbol input
-- TradingView chart capture
-- automatic multi-timeframe monitor
-- merged decision coordinator output
-- signal visualization for entry, stop, targets, and key levels
-- full report, execution plan, and raw JSON
+- command deck for workflow + vision + merged runs
+- stage-by-stage workflow timeline
+- visual agent communication graph
+- deep agent inspector (prompt, input, output, status)
+- decision gates panel (confluence, entry, risk, critic, final)
+- multi-timeframe TradingView screenshot gallery with votes
+- backend operations history stream
+- workflow audit event stream
+- raw JSON payload panel
 
 ## HTTP API
 
@@ -87,6 +87,7 @@ The dashboard now includes:
 - `POST /vision/capture`
 - `POST /vision/monitor`
 - `POST /decision/merged`
+- `GET /operations/history`
 - `GET /screenshots/<file>`
 
 Full endpoint docs:

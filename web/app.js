@@ -2,11 +2,12 @@ const state = {
   health: null,
   workflows: [],
   fixtures: [],
-  latestResult: null,
+  latestRun: null,
+  latestMerged: null,
+  latestVisionCapture: null,
+  latestVisionMonitor: null,
   latestRaw: null,
-  vision: null,
-  visionMonitor: null,
-  merged: null,
+  operations: [],
 };
 
 function $(id) {
@@ -22,23 +23,49 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatPrice(value) {
+function asPercent(value) {
+  const parsed = toNumber(value);
+  if (parsed === null) return "n/a";
+  const normalized = parsed <= 1 ? parsed * 100 : parsed;
+  return `${normalized.toFixed(1)}%`;
+}
+
+function asConfidence(value) {
   const parsed = toNumber(value);
   return parsed === null ? "n/a" : parsed.toFixed(2);
 }
 
-function normalizeDirection(value = "neutral") {
-  const normalized = String(value).toLowerCase();
-  if (normalized === "long") return "bullish";
-  if (normalized === "short") return "bearish";
-  if (["bullish", "bearish", "neutral", "mixed"].includes(normalized)) return normalized;
-  return "neutral";
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function parseTimeframesInput(value = "") {
-  const raw = String(value || "").trim();
-  if (!raw) return ["1", "5", "15", "60", "240"];
-  return raw
+function setRawPayload(payload) {
+  state.latestRaw = payload || null;
+  const el = $("raw-json");
+  if (!el) return;
+  el.textContent = payload ? JSON.stringify(payload, null, 2) : "Run an action to view JSON output.";
+}
+
+function renderOptions(selectEl, items = []) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  for (const item of items) {
+    const option = document.createElement("option");
+    option.value = item?.key || item?.name || item?.id || "";
+    option.textContent = item?.name || item?.key || item?.id || "unnamed";
+    selectEl.appendChild(option);
+  }
+}
+
+function parseTimeframesInput(raw = "") {
+  const value = String(raw || "").trim();
+  if (!value) return ["1", "5", "15", "60", "240"];
+  return value
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .map((item) => {
@@ -82,36 +109,27 @@ async function fetchJson(url, options) {
   return payload;
 }
 
-function getRuntimeMode(health, result) {
-  const healthMode =
-    health?.mode ||
-    health?.runtime?.defaultMarketMode ||
-    health?.runtimeMode ||
-    health?.health?.mode ||
-    health?.health?.runtimeMode ||
-    health?.health?.sourceMode ||
-    null;
-  if (healthMode) return healthMode;
-
-  const source = result?.marketSnapshot?.source || result?.marketSnapshot?.health?.source || "";
-  if (typeof source === "string" && source.includes("live")) return "live";
-  if (typeof source === "string" && source.includes("fixture")) return "fixture";
-  return "fixture";
-}
-
 function setHealth(status) {
   const el = $("health-status");
   if (!el) return;
   if (status?.status === "ok" || status?.health?.ok === true) {
     el.textContent = "Healthy";
     el.className = "pill ok";
-  } else {
-    el.textContent = status ? "Degraded" : "Unreachable";
-    el.className = "pill error";
+    return;
   }
+  el.textContent = status ? "Degraded" : "Unreachable";
+  el.className = "pill error";
 }
 
-function setMode(mode) {
+function getRuntimeMode(health, runResult) {
+  const modeFromHealth = health?.mode || health?.runtime?.defaultMarketMode || null;
+  if (modeFromHealth) return modeFromHealth;
+  const source = runResult?.finalState?.marketSnapshot?.source || runResult?.finalState?.marketSnapshot?.liveData?.mode || "";
+  if (String(source).includes("live")) return "live";
+  return "fixture";
+}
+
+function setMode(mode = "unknown") {
   const modeEl = $("mode-pill");
   const runtimeEl = $("runtime-mode");
   const sourceEl = $("runtime-source");
@@ -122,324 +140,84 @@ function setMode(mode) {
   modeEl.className = normalized === "live" ? "pill ok" : normalized === "fixture" ? "pill pill-muted" : "pill";
   runtimeEl.textContent = normalized.charAt(0).toUpperCase() + normalized.slice(1);
   sourceEl.textContent = normalized === "live"
-    ? "Live provider enabled or detected from the latest run."
-    : "Fixture-backed runtime or offline scenario mode.";
-}
+    ? "Live provider path is enabled."
+    : "Fixture-backed or offline scenario mode.";
 
-function renderOptions(select, items) {
-  if (!select) return;
-  const list = Array.isArray(items) ? items : [];
-  select.innerHTML = "";
-  for (const item of list) {
-    const option = document.createElement("option");
-    const value = item?.name || item?.key || item?.id || "";
-    option.value = value;
-    option.textContent = value || "Unnamed";
-    select.appendChild(option);
+  const modeSelect = $("market-mode-select");
+  if (modeSelect && !modeSelect.dataset.userChanged) {
+    modeSelect.value = normalized === "live" ? "live" : "fixture";
   }
 }
 
-function updateRuntimePanel({ health = null, result = null } = {}) {
-  const providerCount = Number(health?.providers ?? health?.health?.providers ?? 0) || 0;
-  const workflowCount = Number(health?.workflows ?? state.workflows.length) || 0;
-  const fixtureCount = Number(health?.fixturesCount ?? state.fixtures.length) || 0;
-  const providerNote = health?.health?.details?.providerHealth || health?.providerNote || "Provider health will appear here.";
-  const workflowNote = workflowCount ? "Available analysis workflows." : "No workflows were loaded.";
-  const fixtureNote = fixtureCount ? "Offline scenarios ready to run." : "No fixture scenarios available.";
+function updateRuntimePanel() {
+  const health = state.health;
+  const providers = Number(health?.health?.providers ?? health?.providers ?? 0) || 0;
+  const workflows = Number(health?.health?.workflows ?? state.workflows.length) || 0;
+  const fixtures = Number(Array.isArray(health?.fixtures) ? health.fixtures.length : state.fixtures.length) || 0;
 
-  const providersEl = $("runtime-providers");
-  const workflowsEl = $("runtime-workflows");
-  const fixturesEl = $("runtime-fixtures");
+  const providerEl = $("runtime-providers");
+  const workflowEl = $("runtime-workflows");
+  const fixtureEl = $("runtime-fixtures");
   const providerNoteEl = $("runtime-provider-note");
   const workflowNoteEl = $("runtime-workflow-note");
   const fixtureNoteEl = $("runtime-fixture-note");
+  if (providerEl) providerEl.textContent = String(providers);
+  if (workflowEl) workflowEl.textContent = String(workflows);
+  if (fixtureEl) fixtureEl.textContent = String(fixtures);
+  if (providerNoteEl) providerNoteEl.textContent = "Model, market, and vision providers detected by runtime.";
+  if (workflowNoteEl) workflowNoteEl.textContent = workflows ? "Workflow stack loaded." : "No workflow definition loaded.";
+  if (fixtureNoteEl) fixtureNoteEl.textContent = fixtures ? "Fixture scenarios ready." : "Fixture list is empty.";
 
-  if (providersEl) providersEl.textContent = String(providerCount);
-  if (workflowsEl) workflowsEl.textContent = String(workflowCount);
-  if (fixturesEl) fixturesEl.textContent = String(fixtureCount);
-  if (providerNoteEl) providerNoteEl.textContent = textOr(providerNote);
-  if (workflowNoteEl) workflowNoteEl.textContent = workflowNote;
-  if (fixtureNoteEl) fixtureNoteEl.textContent = fixtureNote;
-
-  const mode = getRuntimeMode(health || state.health, result || state.latestResult);
-  setMode(mode);
-  const marketModeEl = $("market-mode-select");
-  if (marketModeEl && !marketModeEl.dataset.userChanged) {
-    marketModeEl.value = mode === "live" ? "live" : "fixture";
-  }
+  setMode(getRuntimeMode(health, state.latestRun));
 }
 
-function addSection(container, title, lines = []) {
+function sectionMarkup(title, lines = []) {
+  return `
+    <section class="section">
+      <div class="section-title">${escapeHtml(title)}</div>
+      ${lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}
+    </section>
+  `;
+}
+
+function renderDecisionGates(finalState = null) {
+  const container = $("decision-gates");
   if (!container) return;
-  const card = document.createElement("div");
-  card.className = "section";
-  const heading = document.createElement("div");
-  heading.className = "section-title";
-  heading.textContent = title;
-  card.appendChild(heading);
-
-  for (const line of lines) {
-    const el = document.createElement("div");
-    el.textContent = String(line);
-    card.appendChild(el);
-  }
-  container.appendChild(card);
-}
-
-function renderCandidate(result) {
-  const bodyEl = $("result-body");
-  if (!bodyEl) return;
-
-  const candidate = result?.candidate || null;
-  const reportSections = Array.isArray(result?.report?.sections) ? result.report.sections : [];
-
-  bodyEl.innerHTML = "";
-
-  if (candidate) {
-    addSection(bodyEl, "Candidate", [
-      `Direction: ${textOr(candidate.direction)}`,
-      `Status: ${textOr(candidate.status)}`,
-      `Entry: ${candidate.entryZone ? `${formatPrice(candidate.entryZone.low)} - ${formatPrice(candidate.entryZone.high)}` : "n/a"}`,
-      `Stop: ${candidate.stopLoss ? formatPrice(candidate.stopLoss.price) : "n/a"}`,
-      `Targets: ${Array.isArray(candidate.takeProfitLevels) && candidate.takeProfitLevels.length ? candidate.takeProfitLevels.map((target) => formatPrice(target?.price)).filter((item) => item !== "n/a").join(", ") : "n/a"}`,
-      `RR: ${textOr(candidate.rrProfile?.primary)}`,
-      `Trigger: ${textOr(candidate.triggerType)}`,
-      `Best Session: ${textOr(candidate.bestSession)}`,
-    ]);
-  }
-
-  for (const section of reportSections) {
-    addSection(bodyEl, textOr(section?.title, "Section"), Array.isArray(section?.body) ? section.body : []);
-  }
-}
-
-function renderExecutionPlan(result) {
-  const execEl = $("execution-body");
-  if (!execEl) return;
-
-  const executionPlan = result?.executionPlan || null;
-  if (!executionPlan) {
-    execEl.textContent = "Run a workflow to see an execution plan.";
+  if (!finalState) {
+    container.innerHTML = '<div class="muted small">Run a workflow to see confluence, risk, critic, and final gate decisions.</div>';
     return;
   }
 
-  if (executionPlan.status === "no_trade") {
-    execEl.textContent = "Execution plan suppressed (no-trade).";
-    return;
-  }
+  const confluence = finalState?.confluence || {};
+  const candidate = finalState?.candidate || {};
+  const risk = finalState?.riskReview || {};
+  const critic = finalState?.criticReview || {};
+  const report = finalState?.report || {};
 
-  execEl.innerHTML = "";
-  addSection(execEl, "Entry Plan", [textOr(executionPlan.entryPlan)]);
-  addSection(execEl, "Stop Plan", [textOr(executionPlan.stopPlan)]);
-  addSection(execEl, "Targets", [Array.isArray(executionPlan.targetPlan) && executionPlan.targetPlan.length ? executionPlan.targetPlan.join(" | ") : "n/a"]);
-}
-
-function buildSignalModel(result) {
-  const market = result?.marketSnapshot || {};
-  const candidate = result?.candidate || {};
-  const technical = result?.technicalContext || {};
-
-  const points = [];
-  const bands = [];
-  const currentPrice = toNumber(market?.price?.current ?? market?.lastPrice ?? null);
-  const dayHigh = toNumber(market?.price?.dayHigh ?? null);
-  const dayLow = toNumber(market?.price?.dayLow ?? null);
-  const entryLow = toNumber(candidate?.entryZone?.low ?? technical?.entryZone?.low ?? null);
-  const entryHigh = toNumber(candidate?.entryZone?.high ?? technical?.entryZone?.high ?? null);
-  const stop = toNumber(candidate?.stopLoss?.price ?? technical?.stopLoss?.price ?? null);
-  const targets = Array.isArray(candidate?.takeProfitLevels) ? candidate.takeProfitLevels : [];
-
-  if (Number.isFinite(currentPrice)) points.push({ label: "Current", value: currentPrice, kind: "current" });
-  if (Number.isFinite(dayHigh)) points.push({ label: "Day High", value: dayHigh, kind: "reference" });
-  if (Number.isFinite(dayLow)) points.push({ label: "Day Low", value: dayLow, kind: "reference" });
-  if (Number.isFinite(entryLow) && Number.isFinite(entryHigh)) {
-    bands.push({ label: "Entry Zone", low: Math.min(entryLow, entryHigh), high: Math.max(entryLow, entryHigh), kind: "entry" });
-  }
-  if (Number.isFinite(stop)) points.push({ label: "Stop", value: stop, kind: "stop" });
-  for (const [index, target] of targets.entries()) {
-    const price = toNumber(target?.price);
-    if (price === null) continue;
-    points.push({ label: `Target ${index + 1}`, value: price, kind: "target" });
-  }
-
-  const extraLevels = Array.isArray(technical?.levels) ? technical.levels : [];
-  for (const level of extraLevels.slice(0, 4)) {
-    const value = toNumber(level?.price);
-    if (value === null) continue;
-    points.push({ label: level?.source || "Key Level", value, kind: "reference" });
-  }
-
-  return { points, bands };
-}
-
-function renderSignalVisual(result) {
-  const container = $("signal-visual");
-  const legend = $("signal-legend");
-  if (!container || !legend) return;
-
-  const model = buildSignalModel(result);
-  const points = model.points;
-  const bands = model.bands;
-
-  if (!points.length && !bands.length) {
-    container.className = "signal-visual empty";
-    container.innerHTML = `
-      <div class="signal-empty">
-        <strong>No signal loaded yet.</strong>
-        <span class="muted small">Run a workflow to see the entry stack and price levels.</span>
-      </div>
-    `;
-    legend.innerHTML = "";
-    return;
-  }
-
-  const numericValues = [...points.map((point) => point.value), ...bands.flatMap((band) => [band.low, band.high])].filter(Number.isFinite);
-  let min = Math.min(...numericValues);
-  let max = Math.max(...numericValues);
-  if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    min = 0;
-    max = 1;
-  }
-  const padding = Math.max((max - min) * 0.1, 1);
-  min -= padding;
-  max += padding;
-  const span = Math.max(max - min, 1);
-
-  const width = 840;
-  const height = 280;
-  const leftPad = 120;
-  const rightPad = 760;
-  const topPad = 22;
-  const bottomPad = 30;
-  const scaleY = (value) => {
-    const pct = (value - min) / span;
-    return height - bottomPad - pct * (height - topPad - bottomPad);
-  };
-
-  const rows = [];
-  for (let index = 0; index < 6; index += 1) {
-    const value = min + (span / 5) * index;
-    const y = scaleY(value);
-    rows.push(`<line x1="${leftPad}" x2="${rightPad}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="signal-gridline" />`);
-    rows.push(`<text x="18" y="${(y + 4).toFixed(1)}" class="signal-note">${value.toFixed(2)}</text>`);
-  }
-
-  const bandMarkup = bands.map((band) => {
-    const y1 = scaleY(band.high);
-    const y2 = scaleY(band.low);
-    const top = Math.min(y1, y2);
-    const bandHeight = Math.max(Math.abs(y2 - y1), 8);
-    const labelY = top + bandHeight / 2 + 4;
-    return `
-      <rect x="${leftPad}" y="${top.toFixed(1)}" width="${rightPad - leftPad}" height="${bandHeight.toFixed(1)}" rx="10" class="signal-band" />
-      <text x="${rightPad + 8}" y="${labelY.toFixed(1)}" class="signal-marker-text">${band.label}: ${formatPrice(band.low)} - ${formatPrice(band.high)}</text>
-    `;
-  }).join("");
-
-  const pointMarkup = points.map((point) => {
-    const y = scaleY(point.value);
-    const className = point.kind === "stop" ? "signal-stop" : point.kind === "target" ? "signal-target" : point.kind === "current" ? "signal-marker" : "signal-axis";
-    return `
-      <line x1="${leftPad}" x2="${rightPad}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="${className}" />
-      <circle cx="${leftPad + 8}" cy="${y.toFixed(1)}" r="4.5" class="signal-marker" />
-      <text x="${rightPad + 8}" y="${(y + 4).toFixed(1)}" class="signal-marker-text">${point.label}: ${formatPrice(point.value)}</text>
-    `;
-  }).join("");
-
-  container.className = "signal-visual";
   container.innerHTML = `
-    <svg class="signal-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Signal visualization">
-      <defs>
-        <linearGradient id="signal-bg" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stop-color="rgba(255,255,255,0.03)" />
-          <stop offset="100%" stop-color="rgba(255,255,255,0)" />
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="${width}" height="${height}" rx="16" fill="url(#signal-bg)" />
-      ${rows.join("")}
-      ${bandMarkup}
-      ${pointMarkup}
-      <text x="18" y="18" class="signal-note">Price ladder and trade structure</text>
-    </svg>
+    ${sectionMarkup("Final Gate", [
+      `Status: ${textOr(finalState.finalStatus, "unknown")}`,
+      `Headline: ${textOr(report.headline, "n/a")}`,
+      `Avg technical confidence: ${asConfidence(finalState.averageTechnicalConfidence)}`,
+    ])}
+    ${sectionMarkup("Confluence", [
+      `Regime: ${textOr(confluence.regime, "n/a")}`,
+      `Combined score: ${textOr(confluence.combinedScore, "n/a")}`,
+      `Blocked reasons: ${Array.isArray(confluence.blockedReasons) ? confluence.blockedReasons.length : 0}`,
+    ])}
+    ${sectionMarkup("Entry Selection", [
+      `Candidate status: ${textOr(candidate.status, "n/a")}`,
+      `Direction: ${textOr(candidate.direction, "n/a")}`,
+      `Trigger: ${textOr(candidate.triggerType, "n/a")}`,
+      `RR profile: ${textOr(candidate.rrProfile?.primary, "n/a")}`,
+    ])}
+    ${sectionMarkup("Risk + Critic", [
+      `Risk review: ${textOr(risk.status, "n/a")}`,
+      `Event risk: ${textOr(risk.eventRiskState, "n/a")}`,
+      `Critic review: ${textOr(critic.status, "n/a")}`,
+      `Objections: ${Array.isArray(critic.objections) ? critic.objections.length : 0}`,
+    ])}
   `;
-
-  const legendItems = [
-    { label: "Current price", value: textOr(formatPrice(points.find((point) => point.kind === "current")?.value)), color: "#edf1f8" },
-    { label: "Entry zone", value: bands.length ? `${formatPrice(bands[0].low)} - ${formatPrice(bands[0].high)}` : "n/a", color: "#f5b63b" },
-    { label: "Stop", value: textOr(formatPrice(points.find((point) => point.kind === "stop")?.value)), color: "#ff7a59" },
-    { label: "Targets", value: points.filter((point) => point.kind === "target").map((point) => formatPrice(point.value)).join(", ") || "n/a", color: "#57d5cc" },
-  ];
-
-  legend.innerHTML = legendItems.map((item) => `
-    <div class="legend-item">
-      <div class="legend-row">
-        <span class="legend-swatch" style="background: ${item.color};"></span>
-        <strong>${item.label}</strong>
-      </div>
-      <div class="muted small">${item.value}</div>
-    </div>
-  `).join("");
-}
-
-function renderVisionPreviewFromCapture(capture = null, message = null) {
-  const statusEl = $("vision-status");
-  const imageEl = $("vision-image");
-  const placeholderEl = $("vision-placeholder");
-  const previewEl = imageEl?.parentElement;
-  if (!statusEl || !imageEl || !placeholderEl || !previewEl) return;
-
-  const imageUrl = capture?.publicPath || capture?.imageUrl || capture?.url || null;
-  if (imageUrl) {
-    imageEl.src = imageUrl;
-    imageEl.alt = `TradingView chart preview for ${capture?.symbol || "XAUUSD"}`;
-    previewEl.classList.add("has-image");
-    statusEl.textContent = message || `Captured ${capture?.symbol || "XAUUSD"} (${capture?.timeframeLabel || capture?.timeframe || "chart"}).`;
-    placeholderEl.innerHTML = "";
-    const title = document.createElement("strong");
-    title.textContent = "Latest capture ready.";
-    const note = document.createElement("span");
-    note.className = "muted small";
-    note.textContent = capture?.chartUrl || "Screenshot captured successfully.";
-    placeholderEl.appendChild(title);
-    placeholderEl.appendChild(note);
-    return;
-  }
-
-  previewEl.classList.remove("has-image");
-  imageEl.removeAttribute("src");
-  statusEl.textContent = message || "No screenshot returned yet.";
-  placeholderEl.innerHTML = `
-    <strong>Chart preview will appear here.</strong>
-    <span class="muted small">If capture returns an image URL, the screenshot will render here.</span>
-  `;
-}
-
-function renderResult(result) {
-  const headlineEl = $("result-headline");
-  const summaryEl = $("result-summary");
-  if (!headlineEl || !summaryEl) return;
-
-  state.latestResult = result || null;
-  updateRuntimePanel({ health: state.health, result });
-  renderCandidate(result);
-  renderExecutionPlan(result);
-  renderSignalVisual(result);
-
-  if (!result) {
-    headlineEl.textContent = "No run yet.";
-    summaryEl.textContent = "";
-    return;
-  }
-
-  headlineEl.textContent = `${textOr(result.finalStatus, "NO_STATUS").toUpperCase()} - ${textOr(result.report?.headline, "No headline")}`;
-  summaryEl.textContent = textOr(result.report?.summary, "No summary available.");
-}
-
-function setRawPayload(payload) {
-  state.latestRaw = payload || null;
-  const rawEl = $("raw-json");
-  if (!rawEl) return;
-  rawEl.textContent = payload ? JSON.stringify(payload, null, 2) : "Run a workflow to view JSON output.";
 }
 
 function renderMergedDecision(merged = null) {
@@ -448,127 +226,489 @@ function renderMergedDecision(merged = null) {
   const bodyEl = $("merged-body");
   if (!headlineEl || !summaryEl || !bodyEl) return;
 
-  state.merged = merged || null;
-  bodyEl.innerHTML = "";
-
   if (!merged) {
     headlineEl.textContent = "No merged decision yet.";
     summaryEl.textContent = "";
+    bodyEl.innerHTML = "";
     return;
   }
 
-  headlineEl.textContent = `${textOr(merged.finalStatus, "unknown").toUpperCase()} - confidence ${toNumber(merged.mergedConfidence)?.toFixed(2) || "n/a"}`;
+  headlineEl.textContent = `${textOr(merged.finalStatus, "unknown").toUpperCase()} - confidence ${asConfidence(merged.mergedConfidence)}`;
   summaryEl.textContent = textOr(merged.summary, "No merged summary.");
-
-  addSection(bodyEl, "API", [
-    `Status: ${textOr(merged.api?.status)}`,
-    `Direction: ${textOr(merged.api?.direction)}`,
-    `Confidence: ${toNumber(merged.api?.confidence)?.toFixed(2) || "n/a"}`,
-  ]);
-
-  addSection(bodyEl, "Vision", [
-    `Status: ${textOr(merged.vision?.status)}`,
-    `Direction: ${textOr(merged.vision?.direction)}`,
-    `Confidence: ${toNumber(merged.vision?.confidence)?.toFixed(2) || "n/a"}`,
-    `Weighted score: ${toNumber(merged.vision?.weightedScore)?.toFixed(2) || "n/a"}`,
-  ]);
-
-  addSection(bodyEl, "Alignment", [
-    `Verdict: ${textOr(merged.alignment?.verdict)}`,
-    `Score: ${toNumber(merged.alignment?.score)?.toFixed(2) || "n/a"}`,
-  ]);
-
-  const voteLines = Array.isArray(merged.vision?.timeframeVotes)
-    ? merged.vision.timeframeVotes.map((vote) => `${vote.timeframeLabel || vote.timeframe}: ${vote.direction} (${toNumber(vote.confidence)?.toFixed(2) || "n/a"})`)
-    : [];
-  addSection(bodyEl, "Timeframe Votes", voteLines.length ? voteLines : ["No timeframe votes available."]);
-
-  addSection(bodyEl, "Reasons", Array.isArray(merged.reasons) && merged.reasons.length ? merged.reasons : ["No reasons supplied."]);
+  bodyEl.innerHTML = `
+    ${sectionMarkup("API", [
+      `Status: ${textOr(merged.api?.status, "n/a")}`,
+      `Direction: ${textOr(merged.api?.direction, "n/a")}`,
+      `Confidence: ${asConfidence(merged.api?.confidence)}`,
+    ])}
+    ${sectionMarkup("Vision", [
+      `Status: ${textOr(merged.vision?.status, "n/a")}`,
+      `Direction: ${textOr(merged.vision?.direction, "n/a")}`,
+      `Confidence: ${asConfidence(merged.vision?.confidence)}`,
+      `Weighted score: ${asConfidence(merged.vision?.weightedScore)}`,
+    ])}
+    ${sectionMarkup("Alignment", [
+      `Verdict: ${textOr(merged.alignment?.verdict, "n/a")}`,
+      `Score: ${asConfidence(merged.alignment?.score)}`,
+      `Reasons: ${Array.isArray(merged.reasons) ? merged.reasons.join(" | ") : "n/a"}`,
+    ])}
+  `;
 }
 
-function getVisionRequestOptions() {
-  const symbol = ($("vision-symbol")?.value || "XAUUSD").trim() || "XAUUSD";
-  const timeframes = parseTimeframesInput($("vision-timeframes")?.value || "1,5,15,60,240");
-  const cycles = parseCycles($("vision-cycles")?.value || "1");
-  return { symbol, timeframes, cycles };
+function normalizeAgentNodes(workflow = null) {
+  if (!workflow || !Array.isArray(workflow.stages)) return [];
+  const nodes = [];
+  for (const stage of workflow.stages) {
+    const outputs = Array.isArray(stage.outputs) ? stage.outputs : [];
+    for (const output of outputs) {
+      nodes.push({
+        stageName: stage.stageName || "stage",
+        agentName: output.agentName || "agent",
+        status: output.status || "unknown",
+        confidence: output.confidence || 0,
+      });
+    }
+  }
+  return nodes;
+}
+
+function renderWorkflowTimeline(workflow = null) {
+  const container = $("workflow-timeline");
+  if (!container) return;
+  if (!workflow || !Array.isArray(workflow.stages) || !workflow.stages.length) {
+    container.innerHTML = '<div class="muted small">No workflow run yet.</div>';
+    return;
+  }
+
+  container.innerHTML = workflow.stages.map((stage) => {
+    const outputs = Array.isArray(stage.outputs) ? stage.outputs : [];
+    const outputHtml = outputs.length
+      ? outputs.map((output) => `
+          <article class="timeline-agent">
+            <div class="timeline-agent-head">
+              <strong>${escapeHtml(textOr(output.agentName, "agent"))}</strong>
+              <span class="status-chip ${escapeHtml(output.status || "unknown")}">${escapeHtml(textOr(output.status, "unknown"))}</span>
+            </div>
+            <div class="muted small">Confidence: ${asConfidence(output.confidence)}</div>
+            <div>${escapeHtml(textOr(output.summary, "No summary."))}</div>
+          </article>
+        `).join("")
+      : '<div class="muted small">No agent output for this stage.</div>';
+
+    return `
+      <section class="timeline-stage">
+        <header class="timeline-stage-head">
+          <h3>${escapeHtml(textOr(stage.stageName, "stage"))}</h3>
+          <span class="status-chip ${escapeHtml(stage.status || "unknown")}">${escapeHtml(textOr(stage.status, "unknown"))}</span>
+        </header>
+        <div class="timeline-agent-list">${outputHtml}</div>
+      </section>
+    `;
+  }).join("");
+}
+
+function renderAgentGraph(workflow = null) {
+  const container = $("agent-graph");
+  if (!container) return;
+
+  const nodes = normalizeAgentNodes(workflow);
+  if (!nodes.length) {
+    container.innerHTML = '<div class="muted small">Run a workflow to render communication flow.</div>';
+    return;
+  }
+
+  const width = Math.max(900, nodes.length * 150 + 120);
+  const height = 260;
+  const startX = 70;
+  const step = (width - 140) / Math.max(nodes.length - 1, 1);
+  const y = 130;
+
+  const edgeMarkup = nodes.slice(0, -1).map((_, index) => {
+    const x1 = startX + index * step + 54;
+    const x2 = startX + (index + 1) * step - 54;
+    return `<line x1="${x1.toFixed(1)}" y1="${y}" x2="${x2.toFixed(1)}" y2="${y}" class="graph-edge" />`;
+  }).join("");
+
+  const nodeMarkup = nodes.map((node, index) => {
+    const x = startX + index * step;
+    const className = node.status === "completed"
+      ? "graph-node completed"
+      : node.status === "rejected" || node.status === "failed"
+        ? "graph-node failed"
+        : "graph-node";
+    return `
+      <g>
+        <rect x="${(x - 54).toFixed(1)}" y="${(y - 36).toFixed(1)}" width="108" height="72" rx="14" class="${className}" />
+        <text x="${x.toFixed(1)}" y="${(y - 10).toFixed(1)}" text-anchor="middle" class="graph-node-title">${escapeHtml(node.agentName)}</text>
+        <text x="${x.toFixed(1)}" y="${(y + 8).toFixed(1)}" text-anchor="middle" class="graph-node-meta">${escapeHtml(node.stageName)}</text>
+        <text x="${x.toFixed(1)}" y="${(y + 24).toFixed(1)}" text-anchor="middle" class="graph-node-meta">c=${asConfidence(node.confidence)}</text>
+      </g>
+    `;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="graph-scroll">
+      <svg class="graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Agent communication graph">
+        <defs>
+          <marker id="edge-arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" class="graph-arrow"></path>
+          </marker>
+        </defs>
+        <text x="24" y="28" class="graph-title">Execution handoff flow across agent chain</text>
+        ${edgeMarkup}
+        ${nodeMarkup}
+      </svg>
+    </div>
+  `;
+}
+
+function agentNamesInWorkflowOrder(workflow = null, agentIO = {}) {
+  const names = [];
+  const seen = new Set();
+  if (workflow && Array.isArray(workflow.stages)) {
+    for (const stage of workflow.stages) {
+      const outputs = Array.isArray(stage.outputs) ? stage.outputs : [];
+      for (const output of outputs) {
+        const name = output?.agentName;
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          names.push(name);
+        }
+      }
+    }
+  }
+
+  for (const key of Object.keys(agentIO || {})) {
+    if (!seen.has(key)) {
+      seen.add(key);
+      names.push(key);
+    }
+  }
+  return names;
+}
+
+function renderAgentInspectorMeta(agentSnapshot = null) {
+  const metaEl = $("agent-meta");
+  if (!metaEl) return;
+
+  if (!agentSnapshot) {
+    metaEl.innerHTML = '<div class="muted small">No agent snapshot available.</div>';
+    return;
+  }
+
+  metaEl.innerHTML = `
+    ${sectionMarkup("Agent Status", [
+      `Name: ${textOr(agentSnapshot.agentName, "n/a")}`,
+      `Status: ${textOr(agentSnapshot.status, "n/a")}`,
+      `Confidence: ${asConfidence(agentSnapshot.confidence)}`,
+      `Started: ${textOr(agentSnapshot.startedAt, "n/a")}`,
+      `Completed: ${textOr(agentSnapshot.completedAt, "n/a")}`,
+    ])}
+    ${sectionMarkup("Summary", [
+      textOr(agentSnapshot.summary, "No summary available."),
+    ])}
+  `;
+}
+
+function renderSelectedAgent() {
+  const selector = $("agent-select");
+  const promptEl = $("agent-prompt-json");
+  const inputEl = $("agent-input-json");
+  const outputEl = $("agent-output-json");
+  if (!selector || !promptEl || !inputEl || !outputEl) return;
+
+  const selected = selector.value;
+  const agentIO = state.latestRun?.finalState?.agentIO || {};
+  const snapshot = agentIO[selected] || null;
+  renderAgentInspectorMeta(snapshot);
+
+  promptEl.textContent = snapshot?.prompt ? JSON.stringify(snapshot.prompt, null, 2) : "{}";
+  inputEl.textContent = snapshot?.input ? JSON.stringify(snapshot.input, null, 2) : "{}";
+  outputEl.textContent = snapshot?.output ? JSON.stringify(snapshot.output, null, 2) : "{}";
+}
+
+function renderAgentInspector(workflow = null, agentIO = {}) {
+  const selector = $("agent-select");
+  if (!selector) return;
+
+  const names = agentNamesInWorkflowOrder(workflow, agentIO);
+  const current = selector.value;
+  selector.innerHTML = "";
+
+  if (!names.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No agents yet";
+    selector.appendChild(option);
+    renderAgentInspectorMeta(null);
+    $("agent-prompt-json").textContent = "{}";
+    $("agent-input-json").textContent = "{}";
+    $("agent-output-json").textContent = "{}";
+    return;
+  }
+
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    selector.appendChild(option);
+  }
+
+  if (current && names.includes(current)) {
+    selector.value = current;
+  } else {
+    selector.value = names[0];
+  }
+  renderSelectedAgent();
+}
+
+function renderAuditStream(auditTrail = []) {
+  const container = $("audit-stream");
+  if (!container) return;
+  const events = Array.isArray(auditTrail) ? auditTrail : [];
+  if (!events.length) {
+    container.innerHTML = '<div class="muted small">Audit trail appears after a workflow run.</div>';
+    return;
+  }
+
+  container.innerHTML = events.slice(-80).reverse().map((entry) => {
+    const payload = entry?.payload || {};
+    const snippet = payload?.agentName
+      ? `agent=${payload.agentName}`
+      : payload?.stageName
+        ? `stage=${payload.stageName}`
+        : payload?.workflowName
+          ? `workflow=${payload.workflowName}`
+          : "event";
+
+    return `
+      <article class="audit-item">
+        <div class="audit-item-head">
+          <strong>${escapeHtml(textOr(entry.eventType, "event"))}</strong>
+          <span class="muted small">${escapeHtml(textOr(entry.ts, ""))}</span>
+        </div>
+        <div class="muted small">${escapeHtml(snippet)}</div>
+      </article>
+    `;
+  }).join("");
+}
+
+function findAnalysisForTimeframe(analysis = null, timeframe = "") {
+  const perTimeframe = Array.isArray(analysis?.perTimeframe) ? analysis.perTimeframe : [];
+  return perTimeframe.find((item) => String(item?.timeframe) === String(timeframe)) || null;
+}
+
+function renderVisionGallery() {
+  const gallery = $("vision-gallery");
+  const votes = $("vision-votes");
+  if (!gallery || !votes) return;
+
+  const monitor = state.latestVisionMonitor;
+  const captureBundle = state.latestVisionCapture;
+  const latestCycle = monitor?.latestCycle || null;
+  const captures = Array.isArray(latestCycle?.capture?.captures)
+    ? latestCycle.capture.captures
+    : captureBundle?.capture
+      ? [captureBundle.capture]
+      : [];
+
+  if (!captures.length) {
+    gallery.innerHTML = '<div class="muted small">Run capture or monitor to load timeframe screenshots.</div>';
+    votes.innerHTML = "";
+    return;
+  }
+
+  gallery.innerHTML = captures.map((capture) => {
+    const analysis = findAnalysisForTimeframe(latestCycle?.analysis, capture?.timeframe) || captureBundle?.analysis || null;
+    const direction = analysis?.direction || "neutral";
+    const confidence = asConfidence(analysis?.confidence);
+    const summary = analysis?.summary || "No analysis summary.";
+
+    return `
+      <article class="vision-card">
+        <div class="vision-card-head">
+          <strong>${escapeHtml(textOr(capture?.timeframeLabel || capture?.timeframe, "chart"))}</strong>
+          <span class="status-chip">${escapeHtml(direction)}</span>
+        </div>
+        ${capture?.publicPath ? `<img src="${escapeHtml(capture.publicPath)}" alt="TradingView ${escapeHtml(textOr(capture?.timeframeLabel, "chart"))} screenshot" />` : '<div class="vision-empty muted small">No screenshot file.</div>'}
+        <div class="muted small">Confidence: ${confidence}</div>
+        <div class="vision-summary">${escapeHtml(summary)}</div>
+      </article>
+    `;
+  }).join("");
+
+  const aggregate = monitor?.aggregate || null;
+  if (!aggregate) {
+    votes.innerHTML = "";
+    return;
+  }
+  const voteLines = Array.isArray(aggregate.timeframeVotes)
+    ? aggregate.timeframeVotes.map((vote) => `${vote.timeframeLabel || vote.timeframe}: ${vote.direction} (${asConfidence(vote.confidence)})`)
+    : [];
+
+  votes.innerHTML = `
+    ${sectionMarkup("Vision Aggregate", [
+      `Direction: ${textOr(aggregate.direction, "neutral")}`,
+      `Confidence: ${asConfidence(aggregate.confidence)}`,
+      `Weighted score: ${asConfidence(aggregate.weightedScore)}`,
+      `Summary: ${textOr(aggregate.summary, "n/a")}`,
+    ])}
+    ${sectionMarkup("Timeframe Votes", voteLines.length ? voteLines : ["No votes available."])}
+  `;
+}
+
+function operationSubtitle(operation = null) {
+  if (!operation) return "";
+  const outcome = operation.outcome || {};
+  if (outcome.finalStatus) return `final=${outcome.finalStatus}`;
+  if (outcome.direction) return `direction=${outcome.direction}`;
+  if (outcome.visionDirection) return `vision=${outcome.visionDirection}`;
+  if (outcome.symbol) return `symbol=${outcome.symbol}`;
+  return "";
+}
+
+function renderOperations() {
+  const container = $("operations-list");
+  if (!container) return;
+  const items = Array.isArray(state.operations) ? state.operations : [];
+  if (!items.length) {
+    container.innerHTML = '<div class="muted small">No operations recorded yet.</div>';
+    return;
+  }
+
+  container.innerHTML = items.map((item) => `
+    <article class="operation-item">
+      <div class="operation-item-head">
+        <strong>${escapeHtml(textOr(item.type, "operation"))}</strong>
+        <span class="status-chip ${escapeHtml(item.status || "unknown")}">${escapeHtml(textOr(item.status, "unknown"))}</span>
+      </div>
+      <div class="muted small">${escapeHtml(textOr(item.ts, ""))}</div>
+      <div>${escapeHtml(textOr(item.summary, ""))}</div>
+      <div class="muted small">${escapeHtml(operationSubtitle(item))}</div>
+    </article>
+  `).join("");
+}
+
+function renderRunBundle(runResponse = null) {
+  state.latestRun = runResponse || null;
+  const workflow = runResponse?.workflow || null;
+  const finalState = runResponse?.finalState || null;
+  const telemetry = runResponse?.telemetry || {};
+
+  renderDecisionGates(finalState);
+  renderWorkflowTimeline(workflow);
+  renderAgentGraph(workflow);
+  renderAgentInspector(workflow, finalState?.agentIO || {});
+  renderAuditStream(telemetry.auditTrail || []);
+  updateRuntimePanel();
+}
+
+async function refreshOperations() {
+  try {
+    const payload = await fetchJson("/operations/history?limit=50");
+    state.operations = Array.isArray(payload?.items) ? payload.items : [];
+    renderOperations();
+  } catch (error) {
+    const container = $("operations-list");
+    if (container) container.innerHTML = `<div class="muted small">Operations unavailable: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function runPayloadFromUI() {
+  return {
+    workflowName: $("workflow-select")?.value || "morningBriefing",
+    fixtureName: $("fixture-select")?.value || "bullishRetest",
+    marketMode: $("market-mode-select")?.value || "fixture",
+    symbol: ($("market-symbol-input")?.value || "XAU/USD").trim() || "XAU/USD",
+  };
+}
+
+function visionPayloadFromUI() {
+  return {
+    symbol: ($("vision-symbol")?.value || "XAUUSD").trim() || "XAUUSD",
+    timeframes: parseTimeframesInput($("vision-timeframes")?.value || "1,5,15,60,240"),
+    cycles: parseCycles($("vision-cycles")?.value || "1"),
+  };
 }
 
 async function loadInitial() {
   const runStatus = $("run-status");
-  if (runStatus) runStatus.textContent = "Loading...";
+  if (runStatus) runStatus.textContent = "Loading runtime...";
 
-  const [healthResult, fixturesResult, workflowsResult] = await Promise.allSettled([
+  const [healthResult, fixturesResult, workflowsResult, operationsResult] = await Promise.allSettled([
     fetchJson("/health"),
     fetchJson("/fixtures"),
     fetchJson("/workflows"),
+    fetchJson("/operations/history?limit=50"),
   ]);
 
   state.health = healthResult.status === "fulfilled" ? healthResult.value : null;
   state.fixtures = fixturesResult.status === "fulfilled" && Array.isArray(fixturesResult.value) ? fixturesResult.value : [];
   state.workflows = workflowsResult.status === "fulfilled" && Array.isArray(workflowsResult.value) ? workflowsResult.value : [];
+  state.operations = operationsResult.status === "fulfilled" && Array.isArray(operationsResult.value?.items)
+    ? operationsResult.value.items
+    : [];
 
-  if (healthResult.status === "fulfilled") {
-    setHealth(healthResult.value);
-  } else {
-    setHealth(null);
-  }
-
+  setHealth(state.health);
   renderOptions($("fixture-select"), state.fixtures);
   renderOptions($("workflow-select"), state.workflows);
-  updateRuntimePanel({ health: state.health, result: state.latestResult });
+  updateRuntimePanel();
+  renderOperations();
+  renderDecisionGates(null);
+  renderMergedDecision(null);
+  renderWorkflowTimeline(null);
+  renderAgentGraph(null);
+  renderAgentInspector(null, {});
+  renderAuditStream([]);
+  renderVisionGallery();
 
   if (runStatus) runStatus.textContent = "Ready";
 }
 
 async function runWorkflow() {
-  const workflowName = $("workflow-select")?.value || "morningBriefing";
-  const fixtureName = $("fixture-select")?.value || "bullishRetest";
-  const marketMode = $("market-mode-select")?.value || "fixture";
-  const symbol = ($("market-symbol-input")?.value || "XAU/USD").trim() || "XAU/USD";
   const runStatus = $("run-status");
-
-  if (runStatus) runStatus.textContent = "Running...";
+  if (runStatus) runStatus.textContent = "Running workflow...";
   try {
+    const payload = runPayloadFromUI();
     const response = await fetchJson("/run", {
       method: "POST",
-      body: JSON.stringify({ workflowName, fixtureName, marketMode, symbol }),
+      body: JSON.stringify(payload),
     });
-    const finalState = response?.finalState || response || null;
-    renderResult(finalState);
+
+    state.latestMerged = null;
+    renderRunBundle(response);
     renderMergedDecision(null);
     setRawPayload(response);
-    if (runStatus) runStatus.textContent = "Done";
+    await refreshOperations();
+    if (runStatus) runStatus.textContent = "Workflow complete";
   } catch (error) {
-    if (runStatus) runStatus.textContent = `Error: ${error.message}`;
-    renderResult(null);
+    if (runStatus) runStatus.textContent = `Run failed: ${error.message}`;
     setRawPayload({ error: error.message });
   }
 }
 
 async function captureVision() {
-  const statusEl = $("vision-status");
+  const visionStatus = $("vision-status");
   const btn = $("vision-btn");
-  const { symbol } = getVisionRequestOptions();
-  if (!statusEl) return;
-
+  const payload = visionPayloadFromUI();
   if (btn) btn.disabled = true;
-  statusEl.textContent = `Capturing ${symbol}...`;
+  if (visionStatus) visionStatus.textContent = `Capturing ${payload.symbol}...`;
   try {
     const response = await fetchJson("/vision/capture", {
       method: "POST",
-      body: JSON.stringify({ symbol }),
+      body: JSON.stringify({
+        symbol: payload.symbol,
+        timeframe: payload.timeframes[2] || "15",
+        analyze: true,
+      }),
     });
-
-    const capture = response?.result?.capture || null;
-    state.vision = {
-      symbol,
-      capture,
-      message: response?.message || "Capture complete.",
-    };
-    renderVisionPreviewFromCapture(capture, state.vision.message);
+    state.latestVisionCapture = response?.result || null;
+    renderVisionGallery();
     setRawPayload(response);
+    await refreshOperations();
+    if (visionStatus) visionStatus.textContent = textOr(response?.message, "Vision capture complete");
   } catch (error) {
-    renderVisionPreviewFromCapture(null, `Capture unavailable: ${error.message}`);
+    if (visionStatus) visionStatus.textContent = `Vision capture failed: ${error.message}`;
     setRawPayload({ error: error.message });
   } finally {
     if (btn) btn.disabled = false;
@@ -576,32 +716,28 @@ async function captureVision() {
 }
 
 async function runVisionMonitor() {
-  const statusEl = $("vision-status");
+  const visionStatus = $("vision-status");
   const btn = $("vision-monitor-btn");
-  const { symbol, timeframes, cycles } = getVisionRequestOptions();
-  if (!statusEl) return;
-
+  const payload = visionPayloadFromUI();
   if (btn) btn.disabled = true;
-  statusEl.textContent = `Monitoring ${symbol} on ${timeframes.join(",")}...`;
+  if (visionStatus) visionStatus.textContent = `Monitoring ${payload.symbol} ${payload.timeframes.join(",")}...`;
   try {
     const response = await fetchJson("/vision/monitor", {
       method: "POST",
       body: JSON.stringify({
-        symbol,
-        timeframes,
-        cycles,
+        symbol: payload.symbol,
+        timeframes: payload.timeframes,
+        cycles: payload.cycles,
         analyze: true,
       }),
     });
-
-    state.visionMonitor = response?.monitor || null;
-    const latestCapture = state.visionMonitor?.latestCycle?.capture?.captures?.at(-1) || null;
-    const aggregate = state.visionMonitor?.aggregate;
-    const message = aggregate?.summary || "Multi-timeframe monitor complete.";
-    renderVisionPreviewFromCapture(latestCapture, message);
+    state.latestVisionMonitor = response?.monitor || null;
+    renderVisionGallery();
     setRawPayload(response);
+    await refreshOperations();
+    if (visionStatus) visionStatus.textContent = textOr(state.latestVisionMonitor?.aggregate?.summary, "Vision monitor complete");
   } catch (error) {
-    renderVisionPreviewFromCapture(null, `Monitor unavailable: ${error.message}`);
+    if (visionStatus) visionStatus.textContent = `Vision monitor failed: ${error.message}`;
     setRawPayload({ error: error.message });
   } finally {
     if (btn) btn.disabled = false;
@@ -612,39 +748,34 @@ async function runMergedDecision() {
   const runStatus = $("run-status");
   const visionStatus = $("vision-status");
   const btn = $("merged-run-btn");
-  const workflowName = $("workflow-select")?.value || "intradayScan";
-  const fixtureName = $("fixture-select")?.value || "bullishRetest";
-  const marketMode = $("market-mode-select")?.value || "fixture";
-  const symbol = ($("market-symbol-input")?.value || "XAU/USD").trim() || "XAU/USD";
-  const { timeframes, cycles } = getVisionRequestOptions();
+  const runPayload = runPayloadFromUI();
+  const visionPayload = visionPayloadFromUI();
 
   if (btn) btn.disabled = true;
-  if (runStatus) runStatus.textContent = "Running merged decision...";
-  if (visionStatus) visionStatus.textContent = "Coordinator is combining API + vision...";
-
+  if (runStatus) runStatus.textContent = "Running merged coordinator...";
+  if (visionStatus) visionStatus.textContent = "Gathering API + vision evidence...";
   try {
     const response = await fetchJson("/decision/merged", {
       method: "POST",
       body: JSON.stringify({
-        workflowName,
-        fixtureName,
-        marketMode,
-        symbol,
-        timeframes,
-        cycles,
+        ...runPayload,
+        timeframes: visionPayload.timeframes,
+        cycles: visionPayload.cycles,
         analyze: true,
       }),
     });
 
-    renderResult(response?.api?.finalState || null);
-    renderMergedDecision(response?.merged || null);
-    state.visionMonitor = response?.vision || null;
-    const latestCapture = state.visionMonitor?.latestCycle?.capture?.captures?.at(-1) || null;
-    renderVisionPreviewFromCapture(latestCapture, response?.merged?.summary || "Merged decision completed.");
+    state.latestMerged = response?.merged || null;
+    state.latestVisionMonitor = response?.vision || null;
+    renderRunBundle(response?.api || null);
+    renderMergedDecision(state.latestMerged);
+    renderVisionGallery();
     setRawPayload(response);
-    if (runStatus) runStatus.textContent = "Merged decision done";
+    await refreshOperations();
+    if (runStatus) runStatus.textContent = "Merged decision complete";
+    if (visionStatus) visionStatus.textContent = textOr(response?.merged?.summary, "Merged decision complete.");
   } catch (error) {
-    if (runStatus) runStatus.textContent = `Merged decision failed: ${error.message}`;
+    if (runStatus) runStatus.textContent = `Merged run failed: ${error.message}`;
     if (visionStatus) visionStatus.textContent = "Merged run failed.";
     setRawPayload({ error: error.message });
   } finally {
@@ -667,8 +798,19 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  $("refresh-ops")?.addEventListener("click", () => {
+    refreshOperations().catch((error) => {
+      const runStatus = $("run-status");
+      if (runStatus) runStatus.textContent = `Ops refresh failed: ${error.message}`;
+    });
+  });
+
   $("market-mode-select")?.addEventListener("change", (event) => {
     event.currentTarget.dataset.userChanged = "1";
+  });
+
+  $("agent-select")?.addEventListener("change", () => {
+    renderSelectedAgent();
   });
 
   $("run-btn")?.addEventListener("click", runWorkflow);

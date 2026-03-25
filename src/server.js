@@ -11,6 +11,46 @@ const root = process.cwd();
 const webRoot = path.join(root, "web");
 const screenshotsRoot = path.join(root, "screenshots");
 const vision = createVisionService({ rootDir: root });
+const operationsHistory = [];
+const MAX_OPERATIONS = 240;
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function capLength(value, max = 220) {
+  const text = String(value ?? "");
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function recordOperation(type, {
+  status = "ok",
+  request = null,
+  outcome = {},
+  summary = "",
+} = {}) {
+  const entry = {
+    id: `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    ts: nowIso(),
+    type,
+    status,
+    summary: capLength(summary || `${type} completed.`),
+    request: request ? structuredClone(request) : null,
+    outcome: outcome ? structuredClone(outcome) : {},
+  };
+  operationsHistory.unshift(entry);
+  if (operationsHistory.length > MAX_OPERATIONS) {
+    operationsHistory.length = MAX_OPERATIONS;
+  }
+  return entry;
+}
+
+function getOperations(limit = 60) {
+  const parsed = Number(limit);
+  const safeLimit = Number.isFinite(parsed) ? Math.max(1, Math.min(200, Math.floor(parsed))) : 60;
+  return operationsHistory.slice(0, safeLimit).map((entry) => structuredClone(entry));
+}
 
 function normalizeTradingViewSymbol(symbol = "XAU/USD") {
   const raw = String(symbol || "").trim();
@@ -96,6 +136,10 @@ const server = http.createServer(async (request, response) => {
         runtime,
         vision: vision.getCapabilities(),
         fixtures: Object.keys(system.fixtures),
+        operations: {
+          count: operationsHistory.length,
+          latest: operationsHistory[0] || null,
+        },
       });
     }
 
@@ -107,6 +151,18 @@ const server = http.createServer(async (request, response) => {
         runtime,
         vision: vision.getCapabilities(),
         latestVision: vision.getLatest(),
+        operations: {
+          count: operationsHistory.length,
+          latest: operationsHistory[0] || null,
+        },
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/operations/history") {
+      return sendJson(response, 200, {
+        status: "ok",
+        total: operationsHistory.length,
+        items: getOperations(url.searchParams.get("limit")),
       });
     }
 
@@ -128,7 +184,22 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/run") {
       const payload = await readJson(request);
       const result = await system.runScenario(payload || {});
-      return sendJson(response, 200, result);
+      const operation = recordOperation("workflow.run", {
+        status: result?.workflow?.status === "completed" ? "ok" : "failed",
+        request: payload || {},
+        outcome: {
+          workflowId: result?.workflow?.workflowId || null,
+          workflowName: result?.workflow?.workflowName || payload?.workflowName || null,
+          finalStatus: result?.finalState?.finalStatus || null,
+          marketMode: result?.finalState?.marketSnapshot?.liveData?.mode || payload?.marketMode || null,
+          symbol: result?.finalState?.marketSnapshot?.symbol || payload?.symbol || null,
+        },
+        summary: `Workflow ${result?.workflow?.workflowName || payload?.workflowName || "run"} finished as ${result?.finalState?.finalStatus || result?.workflow?.status || "unknown"}.`,
+      });
+      return sendJson(response, 200, {
+        ...result,
+        operation,
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/vision/latest") {
@@ -144,12 +215,24 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/vision/capture") {
       const payload = await readJson(request);
       const result = await vision.captureAndAnalyze(payload || {});
+      const operation = recordOperation("vision.capture", {
+        status: result?.capture ? "ok" : "failed",
+        request: payload || {},
+        outcome: {
+          symbol: result?.capture?.symbol || payload?.symbol || null,
+          timeframe: result?.capture?.timeframe || payload?.timeframe || null,
+          imageUrl: result?.capture?.publicPath || null,
+          analysisStatus: result?.analysis?.status || "unavailable",
+        },
+        summary: `Vision capture ${result?.capture?.symbol || payload?.symbol || "XAUUSD"} ${result?.analysis?.status === "completed" ? "analyzed" : "captured"}.`,
+      });
       return sendJson(response, 200, {
         status: "ok",
         result,
         imageUrl: result?.capture?.publicPath || null,
         source: "TradingView",
         message: result?.analysis?.summary || "Chart capture completed.",
+        operation,
       });
     }
 
@@ -165,9 +248,21 @@ const server = http.createServer(async (request, response) => {
         waitMs: payload?.waitMs,
         exchange: payload?.exchange,
       });
+      const operation = recordOperation("vision.monitor", {
+        status: monitor?.status === "completed" ? "ok" : "failed",
+        request: payload || {},
+        outcome: {
+          symbol: monitor?.symbol || payload?.symbol || null,
+          cycles: Array.isArray(monitor?.cycles) ? monitor.cycles.length : 0,
+          direction: monitor?.aggregate?.direction || "neutral",
+          confidence: monitor?.aggregate?.confidence || 0,
+        },
+        summary: `Vision monitor ${monitor?.symbol || payload?.symbol || "XAUUSD"} -> ${monitor?.aggregate?.direction || "neutral"} (${Number(monitor?.aggregate?.confidence || 0).toFixed(2)}).`,
+      });
       return sendJson(response, 200, {
         status: "ok",
         monitor,
+        operation,
       });
     }
 
@@ -196,11 +291,25 @@ const server = http.createServer(async (request, response) => {
         visionMonitor: monitor,
       });
 
+      const operation = recordOperation("decision.merged", {
+        status: merged?.status === "completed" ? "ok" : "failed",
+        request: payload || {},
+        outcome: {
+          workflowId: workflowResult?.workflow?.workflowId || null,
+          finalStatus: merged?.finalStatus || null,
+          apiStatus: merged?.api?.status || null,
+          visionDirection: merged?.vision?.direction || null,
+          mergedConfidence: merged?.mergedConfidence || 0,
+        },
+        summary: `Merged decision ${merged?.finalStatus || "unknown"} (${Number(merged?.mergedConfidence || 0).toFixed(2)} confidence).`,
+      });
+
       return sendJson(response, 200, {
         status: "ok",
         merged,
         api: workflowResult,
         vision: monitor,
+        operation,
       });
     }
 

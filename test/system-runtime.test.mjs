@@ -14,6 +14,12 @@ test("bullish retest fixture produces an approved or conditional signal through 
   assert.ok(result.finalState.technicalContext);
   assert.ok(result.finalState.report);
   assert.ok(result.finalState.candidate);
+  assert.ok(result.finalState.agentIO?.["market-data"]);
+  assert.ok(result.finalState.agentIO?.["report-writer"]);
+  assert.ok(Array.isArray(result.telemetry?.auditTrail));
+  assert.ok(result.telemetry.auditTrail.some((entry) => entry.eventType === "workflow.start"));
+  assert.ok(result.telemetry.auditTrail.some((entry) => entry.eventType === "workflow.complete"));
+  assert.ok(result.telemetry.auditTrail.every((entry) => entry.payload?.workflowId === result.workflow.workflowId));
 });
 
 test("event blocked fixture produces a no-trade or rejected signal through the full workflow", async () => {
