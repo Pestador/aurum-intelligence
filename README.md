@@ -36,6 +36,21 @@ It includes:
 - `node src/cli.js morningBriefing bullishRetest`
 - `node src/server.js`
 
+## Secrets and Keys
+
+- Never hardcode keys in source files.
+- Use environment variables or a local `.env` file.
+- Start from [.env.example](.env.example).
+
+Required for live mode:
+- `ALPHAVANTAGE_KEY`
+
+Required for optional vision analysis:
+- `OPENAI_API_KEY`
+
+Security details:
+- [docs/SECURITY_AND_KEYS.md](docs/SECURITY_AND_KEYS.md)
+
 ## Dashboard
 
 Start the server:
@@ -73,6 +88,9 @@ The dashboard now includes:
 - `POST /vision/monitor`
 - `POST /decision/merged`
 - `GET /screenshots/<file>`
+
+Full endpoint docs:
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
 Example `POST /run` body:
 
@@ -184,6 +202,13 @@ If PowerShell blocks `npm`, use:
 ## Install Guide
 
 Plain-English setup instructions are in [INSTALL.md](INSTALL.md).
+
+## Documentation Index
+
+- [INSTALL.md](INSTALL.md)
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
+- [docs/SECURITY_AND_KEYS.md](docs/SECURITY_AND_KEYS.md)
+- [GITHUB_SETUP.md](GITHUB_SETUP.md)
 
 ## Project Layout
 

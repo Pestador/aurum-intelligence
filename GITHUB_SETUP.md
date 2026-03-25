@@ -47,6 +47,14 @@ git add .
 git commit -m "Initial Aurum Intelligence system"
 ```
 
+Before push, verify no secrets are staged:
+
+```powershell
+git diff --cached
+```
+
+If you see real API keys, stop and remove them before pushing.
+
 ## Step 5: Push to GitHub
 
 If your main branch is `master`:
@@ -68,6 +76,9 @@ On GitHub, make sure these files are visible:
 - `README.md`
 - `INSTALL.md`
 - `GITHUB_SETUP.md`
+- `.env.example`
+- `docs/API_REFERENCE.md`
+- `docs/SECURITY_AND_KEYS.md`
 - `package.json`
 - `src/`
 - `fixtures/`

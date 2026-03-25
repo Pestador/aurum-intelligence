@@ -3,3 +3,8 @@ coverage/
 *.log
 .DS_Store
 screenshots/
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
