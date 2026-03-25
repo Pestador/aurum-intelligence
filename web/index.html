@@ -73,6 +73,38 @@
       </div>
     </section>
 
+    <section class="card card-span-2 signal-card-shell" id="signal-card-shell">
+      <div class="signal-card-head">
+        <div class="signal-label">Primary Signal</div>
+        <span id="signal-source-pill" class="status-chip">waiting</span>
+      </div>
+      <div id="signal-status" class="signal-status neutral">NO SIGNAL</div>
+      <div id="signal-direction" class="signal-direction muted">Direction: neutral</div>
+      <div class="signal-grid">
+        <div class="signal-cell">
+          <span class="signal-key">Confidence</span>
+          <strong id="signal-confidence">n/a</strong>
+        </div>
+        <div class="signal-cell">
+          <span class="signal-key">Entry</span>
+          <strong id="signal-entry">n/a</strong>
+        </div>
+        <div class="signal-cell">
+          <span class="signal-key">Stop</span>
+          <strong id="signal-stop">n/a</strong>
+        </div>
+        <div class="signal-cell">
+          <span class="signal-key">RR</span>
+          <strong id="signal-rr">n/a</strong>
+        </div>
+      </div>
+      <div class="signal-targets">
+        <span class="signal-key">Targets</span>
+        <span id="signal-targets">n/a</span>
+      </div>
+      <div id="signal-note" class="muted small">Run Workflow or Run Merged Decision to generate a signal.</div>
+    </section>
+
     <section class="card">
       <h2>Runtime Snapshot</h2>
       <div class="status-grid">

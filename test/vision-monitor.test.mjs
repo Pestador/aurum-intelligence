@@ -99,4 +99,58 @@ test("merge coordinator fuses api and vision decisions into a final status", () 
   assert.equal(merged.vision.direction, "bullish");
   assert.equal(merged.finalStatus, "approved");
   assert.ok(merged.mergedConfidence > 0.6);
+  assert.equal(merged.fallback.activated, false);
+  assert.equal(merged.signal.source, "api_vision_merge");
+  assert.equal(merged.signal.direction, "bullish");
+});
+
+test("merge coordinator promotes a conditional fallback when API is degraded and vision is strongly directional", () => {
+  const apiFinalState = {
+    finalStatus: "no_trade",
+    marketSnapshot: {
+      source: "live-alpha-vantage",
+      liveData: {
+        mode: "live",
+        degraded: true,
+        notes: ["rate limit reached"],
+      },
+      health: {
+        ok: false,
+        degraded: true,
+      },
+    },
+    technicalContext: {
+      directionBias: "neutral",
+    },
+  };
+
+  const visionMonitor = {
+    status: "completed",
+    aggregate: {
+      status: "completed",
+      direction: "bullish",
+      confidence: 0.74,
+      weightedScore: 0.48,
+      timeframeVotes: [
+        { timeframe: "15", direction: "bullish", confidence: 0.72 },
+        { timeframe: "60", direction: "bullish", confidence: 0.76 },
+        { timeframe: "240", direction: "bullish", confidence: 0.7 },
+      ],
+    },
+  };
+
+  const merged = mergeApiAndVisionDecision({
+    apiWorkflow: { status: "failed" },
+    apiFinalState,
+    visionMonitor,
+  });
+
+  assert.equal(merged.status, "completed");
+  assert.equal(merged.api.status, "no_trade");
+  assert.equal(merged.apiQuality.degraded, true);
+  assert.equal(merged.fallback.activated, true);
+  assert.equal(merged.finalStatus, "conditional");
+  assert.equal(merged.signal.source, "vision_fallback");
+  assert.equal(merged.signal.direction, "bullish");
+  assert.ok(merged.mergedConfidence >= 0.5);
 });

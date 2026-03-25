@@ -35,6 +35,36 @@ function asConfidence(value) {
   return parsed === null ? "n/a" : parsed.toFixed(2);
 }
 
+function formatPrice(value) {
+  const parsed = toNumber(value);
+  return parsed === null ? "n/a" : parsed.toFixed(2);
+}
+
+function formatEntry(entryZone = null) {
+  if (!entryZone) return "n/a";
+  const low = formatPrice(entryZone.low);
+  const high = formatPrice(entryZone.high);
+  if (low === "n/a" && high === "n/a") return "n/a";
+  return `${low} - ${high}`;
+}
+
+function formatTargets(targets = []) {
+  if (!Array.isArray(targets) || !targets.length) return "n/a";
+  const values = targets
+    .map((target) => target?.price)
+    .map((price) => formatPrice(price))
+    .filter((price) => price !== "n/a");
+  return values.length ? values.join(", ") : "n/a";
+}
+
+function normalizeDirection(direction = "neutral") {
+  const normalized = String(direction || "").toLowerCase();
+  if (normalized === "long") return "bullish";
+  if (normalized === "short") return "bearish";
+  if (["bullish", "bearish", "neutral", "mixed"].includes(normalized)) return normalized;
+  return "neutral";
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -180,6 +210,111 @@ function sectionMarkup(title, lines = []) {
   `;
 }
 
+function deriveSignalFromFinalState(finalState = null) {
+  if (!finalState) return null;
+  const candidate = finalState?.candidate || null;
+  const technical = finalState?.technicalContext || null;
+  const confluence = finalState?.confluence || null;
+  return {
+    status: finalState?.finalStatus || "no_trade",
+    direction: normalizeDirection(candidate?.direction || technical?.directionBias || "neutral"),
+    confidence: Number.isFinite(confluence?.combinedScore) ? clampValue(confluence.combinedScore / 100) : finalState?.averageTechnicalConfidence || 0,
+    source: "api_workflow",
+    entryZone: candidate?.entryZone || technical?.entryZone || null,
+    stopLoss: candidate?.stopLoss || technical?.stopLoss || null,
+    targets: candidate?.takeProfitLevels || technical?.targets || [],
+    rr: candidate?.rrProfile?.primary || null,
+    note: finalState?.report?.summary || "Signal generated from API workflow pipeline.",
+  };
+}
+
+function clampValue(value, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, Number(value) || 0));
+}
+
+function deriveSignalFromMerged(merged = null, finalState = null) {
+  if (!merged) return null;
+  const fromMerged = merged?.signal || {};
+  const fallback = merged?.fallback || {};
+  const fallbackDirection = normalizeDirection(fallback?.direction || "neutral");
+  const direction = normalizeDirection(fromMerged?.direction || (fallback?.activated ? fallbackDirection : merged?.api?.direction || "neutral"));
+  return {
+    status: fromMerged?.status || merged?.finalStatus || "no_trade",
+    direction,
+    confidence: Number.isFinite(fromMerged?.confidence) ? fromMerged.confidence : merged?.mergedConfidence || 0,
+    source: fromMerged?.source || (fallback?.activated ? "vision_fallback" : "api_vision_merge"),
+    entryZone: fromMerged?.entryZone || finalState?.candidate?.entryZone || finalState?.technicalContext?.entryZone || null,
+    stopLoss: fromMerged?.stopLoss || finalState?.candidate?.stopLoss || finalState?.technicalContext?.stopLoss || null,
+    targets: fromMerged?.targets || finalState?.candidate?.takeProfitLevels || finalState?.technicalContext?.targets || [],
+    rr: fromMerged?.rr || finalState?.candidate?.rrProfile?.primary || null,
+    note: fallback?.activated ? fallback?.reason || "Vision fallback signal is active." : merged?.summary || "Merged signal ready.",
+  };
+}
+
+function signalSourceLabel(source = "api_workflow") {
+  const normalized = String(source || "").toLowerCase();
+  if (normalized === "vision_fallback") return "vision fallback";
+  if (normalized === "api_vision_merge") return "api + vision";
+  if (normalized === "api_workflow") return "api workflow";
+  return normalized || "unknown";
+}
+
+function signalDirectionLabel(direction = "neutral") {
+  const normalized = normalizeDirection(direction);
+  if (normalized === "bullish") return "bullish (long bias)";
+  if (normalized === "bearish") return "bearish (short bias)";
+  if (normalized === "mixed") return "mixed";
+  return "neutral";
+}
+
+function renderSignalCard() {
+  const shell = $("signal-card-shell");
+  const statusEl = $("signal-status");
+  const sourceEl = $("signal-source-pill");
+  const directionEl = $("signal-direction");
+  const confidenceEl = $("signal-confidence");
+  const entryEl = $("signal-entry");
+  const stopEl = $("signal-stop");
+  const targetsEl = $("signal-targets");
+  const rrEl = $("signal-rr");
+  const noteEl = $("signal-note");
+
+  if (!shell || !statusEl || !sourceEl || !directionEl || !confidenceEl || !entryEl || !stopEl || !targetsEl || !rrEl || !noteEl) return;
+
+  const mergedSignal = deriveSignalFromMerged(state.latestMerged, state.latestRun?.finalState || null);
+  const apiSignal = deriveSignalFromFinalState(state.latestRun?.finalState || null);
+  const signal = mergedSignal || apiSignal;
+
+  if (!signal) {
+    shell.className = "card card-span-2 signal-card-shell neutral";
+    statusEl.className = "signal-status neutral";
+    statusEl.textContent = "NO SIGNAL";
+    sourceEl.textContent = "waiting";
+    directionEl.textContent = "Direction: neutral";
+    confidenceEl.textContent = "n/a";
+    entryEl.textContent = "n/a";
+    stopEl.textContent = "n/a";
+    targetsEl.textContent = "n/a";
+    rrEl.textContent = "n/a";
+    noteEl.textContent = "Run Workflow or Run Merged Decision to generate a signal.";
+    return;
+  }
+
+  const statusClass = String(signal.status || "no_trade").toLowerCase();
+  shell.className = `card card-span-2 signal-card-shell ${statusClass}`;
+  statusEl.className = `signal-status ${statusClass}`;
+  statusEl.textContent = String(signal.status || "no_trade").replaceAll("_", " ").toUpperCase();
+  sourceEl.textContent = signalSourceLabel(signal.source);
+  sourceEl.className = `status-chip ${normalizeDirection(signal.direction)}`;
+  directionEl.textContent = `Direction: ${signalDirectionLabel(signal.direction)}`;
+  confidenceEl.textContent = asPercent(signal.confidence);
+  entryEl.textContent = formatEntry(signal.entryZone);
+  stopEl.textContent = formatPrice(signal.stopLoss?.price);
+  targetsEl.textContent = formatTargets(signal.targets);
+  rrEl.textContent = Number.isFinite(Number(signal.rr)) ? Number(signal.rr).toFixed(2) : "n/a";
+  noteEl.textContent = textOr(signal.note, "No signal note available.");
+}
+
 function renderDecisionGates(finalState = null) {
   const container = $("decision-gates");
   if (!container) return;
@@ -235,6 +370,8 @@ function renderMergedDecision(merged = null) {
 
   headlineEl.textContent = `${textOr(merged.finalStatus, "unknown").toUpperCase()} - confidence ${asConfidence(merged.mergedConfidence)}`;
   summaryEl.textContent = textOr(merged.summary, "No merged summary.");
+  const fallback = merged?.fallback || {};
+  const apiQuality = merged?.apiQuality || {};
   bodyEl.innerHTML = `
     ${sectionMarkup("API", [
       `Status: ${textOr(merged.api?.status, "n/a")}`,
@@ -251,6 +388,16 @@ function renderMergedDecision(merged = null) {
       `Verdict: ${textOr(merged.alignment?.verdict, "n/a")}`,
       `Score: ${asConfidence(merged.alignment?.score)}`,
       `Reasons: ${Array.isArray(merged.reasons) ? merged.reasons.join(" | ") : "n/a"}`,
+    ])}
+    ${sectionMarkup("Data Quality", [
+      `Mode: ${textOr(apiQuality.mode, "n/a")}`,
+      `Source: ${textOr(apiQuality.source, "n/a")}`,
+      `Degraded: ${String(Boolean(apiQuality.degraded))}`,
+      `Notes: ${Array.isArray(apiQuality.notes) && apiQuality.notes.length ? apiQuality.notes.join(" | ") : "n/a"}`,
+    ])}
+    ${sectionMarkup("Fallback", [
+      `Activated: ${String(Boolean(fallback.activated))}`,
+      `Reason: ${textOr(fallback.reason, "n/a")}`,
     ])}
   `;
 }
@@ -601,6 +748,7 @@ function renderRunBundle(runResponse = null) {
   renderAgentInspector(workflow, finalState?.agentIO || {});
   renderAuditStream(telemetry.auditTrail || []);
   updateRuntimePanel();
+  renderSignalCard();
 }
 
 async function refreshOperations() {
@@ -661,6 +809,7 @@ async function loadInitial() {
   renderAgentInspector(null, {});
   renderAuditStream([]);
   renderVisionGallery();
+  renderSignalCard();
 
   if (runStatus) runStatus.textContent = "Ready";
 }
@@ -678,6 +827,7 @@ async function runWorkflow() {
     state.latestMerged = null;
     renderRunBundle(response);
     renderMergedDecision(null);
+    renderSignalCard();
     setRawPayload(response);
     await refreshOperations();
     if (runStatus) runStatus.textContent = "Workflow complete";
@@ -770,6 +920,7 @@ async function runMergedDecision() {
     renderRunBundle(response?.api || null);
     renderMergedDecision(state.latestMerged);
     renderVisionGallery();
+    renderSignalCard();
     setRawPayload(response);
     await refreshOperations();
     if (runStatus) runStatus.textContent = "Merged decision complete";

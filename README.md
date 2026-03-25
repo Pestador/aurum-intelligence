@@ -66,6 +66,7 @@ Then open:
 The dashboard now includes:
 
 - command deck for workflow + vision + merged runs
+- large top-level signal card (status, direction, confidence, entry, stop, targets, RR)
 - stage-by-stage workflow timeline
 - visual agent communication graph
 - deep agent inspector (prompt, input, output, status)
@@ -129,6 +130,7 @@ Important:
 
 - If only partial live data is available, the system stays honest and marks coverage as degraded.
 - In degraded live mode, the report may prefer `no_trade` rather than pretend to have a strong intraday signal.
+- If API data is degraded but chart vision has strong directional consensus, merged output can return a cautious `conditional` fallback signal.
 
 ## TradingView Browser Control and Vision
 

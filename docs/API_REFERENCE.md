@@ -140,7 +140,10 @@ Example response fields:
   - `finalStatus`
   - `mergedConfidence`
   - `api`
+  - `apiQuality`
   - `vision`
+  - `fallback`
+  - `signal`
   - `alignment`
   - `reasons`
   - `summary`

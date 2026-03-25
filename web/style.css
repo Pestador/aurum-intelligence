@@ -338,6 +338,103 @@ button.accent-secondary {
   font-weight: 800;
 }
 
+.signal-card-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 44%),
+    linear-gradient(180deg, rgba(127, 176, 255, 0.16), rgba(127, 176, 255, 0.03)),
+    var(--panel);
+}
+
+.signal-card-shell.approved {
+  border-color: rgba(60, 224, 162, 0.48);
+}
+
+.signal-card-shell.conditional {
+  border-color: rgba(255, 154, 93, 0.52);
+}
+
+.signal-card-shell.no_trade,
+.signal-card-shell.rejected {
+  border-color: rgba(255, 111, 120, 0.52);
+}
+
+.signal-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.signal-label {
+  font-size: 12px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.signal-status {
+  margin-top: 8px;
+  font-family: var(--display-font);
+  letter-spacing: 0.03em;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  font-weight: 900;
+}
+
+.signal-status.approved {
+  color: var(--success);
+}
+
+.signal-status.conditional {
+  color: var(--warn);
+}
+
+.signal-status.no_trade,
+.signal-status.rejected {
+  color: var(--error);
+}
+
+.signal-status.neutral {
+  color: var(--accent-3);
+}
+
+.signal-direction {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.signal-grid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+.signal-cell {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px;
+  background: rgba(8, 14, 22, 0.5);
+  display: grid;
+  gap: 4px;
+}
+
+.signal-key {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.signal-cell strong {
+  font-size: 1rem;
+}
+
+.signal-targets {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+}
+
 .divider {
   height: 1px;
   margin: 12px 0;
