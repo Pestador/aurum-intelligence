@@ -7,9 +7,13 @@
   "scripts": {
     "start": "node src/cli.js",
     "server": "node src/server.js",
+    "vision:capture": "node src/vision/tradingview.js --symbol=XAUUSD",
     "test": "node --test --test-isolation=none --test-concurrency=1"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "playwright": "^1.41.2"
   }
 }

@@ -1,116 +1,188 @@
 # Aurum Intelligence
 
-Aurum Intelligence is a dependency-light, self-hostable, multi-agent gold trading intelligence system focused on `XAU/USD`.
+Aurum Intelligence is a self-hostable, multi-agent gold trading intelligence system focused on `XAU/USD`.
 
-This repository implements:
+It includes:
 
-- A coordinator/orchestrator that dispatches staged workflows to specialist agents
-- Technical analysis agents for structure, triggers, liquidity, and momentum/session conditions
-- Fundamental analysis agents for macro context, rates/USD/yields, event risk, and intermarket context
-- Signal-construction agents for confluence scoring, precision trade building, risk qualification, critic review, execution planning, and reporting
-- Provider abstractions and mock fixtures so the system can run offline without external API keys
+- a coordinator/orchestrator that runs staged workflows
+- technical-analysis agents for structure, triggers, liquidity, and momentum/session analysis
+- fundamental-analysis agents for macro context, rates/USD/yields, event risk, and intermarket context
+- signal-construction agents for confluence, precision entries, risk qualification, critic review, execution planning, and reporting
+- a local dashboard and HTTP API
+- fixture-backed offline scenarios
+- optional live gold data support
+- optional TradingView browser capture and chart-vision analysis
 
-## Goals
+## What You Can Do Right Now
 
-- Produce selective, well-qualified trade ideas
-- Produce explicit no-trade outcomes when conditions are not strong enough
-- Keep analysis traceable and auditable
-- Support future real provider and model integrations without rewriting the core runtime
-
-## Scripts
-
-- `npm run start` runs the CLI with fixture-backed analysis
-- `npm run server` runs a small HTTP server
-- `npm test` runs the built-in Node test suite
-
-If PowerShell blocks `npm`, use `cmd /c npm run start` or `cmd /c npm test`.
-
-## Non-Developer Install
-
-You do **not** need to install any npm packages for the current version of this project.
-
-What you need:
-
-- Windows
-- Node.js 22 or newer installed
-
-How to run it:
-
-1. Download or clone the project folder.
-2. Open the folder.
-3. Double-click [run-aurum-demo.bat](run-aurum-demo.bat) for a demo analysis in the terminal.
-4. Double-click [start-aurum-server.bat](start-aurum-server.bat) to start the local server.
-5. Once the server is running, open `http://localhost:3000/health` in your browser to confirm it is working.
-
-If you prefer terminal commands:
-
-- `node src/cli.js morningBriefing bullishRetest`
-- `node src/cli.js tradeValidation eventBlocked`
-- `node src/server.js`
-
-Full step-by-step setup is in [INSTALL.md](INSTALL.md).
+- Run the system fully offline with built-in scenarios
+- Open a local dashboard at `http://localhost:3000/`
+- Switch between fixture mode and live mode from the dashboard
+- Capture a TradingView chart screenshot from the dashboard or CLI
+- Optionally send captured charts to a vision model if `OPENAI_API_KEY` is configured
 
 ## Quick Start
 
+### Option 1: easiest
+
+- Double-click [run-aurum-demo.bat](run-aurum-demo.bat)
+- Double-click [start-aurum-server.bat](start-aurum-server.bat)
+- Open `http://localhost:3000/`
+
+### Option 2: terminal
+
 - `node src/cli.js morningBriefing bullishRetest`
-- `node src/cli.js tradeValidation eventBlocked`
 - `node src/server.js`
 
-HTTP endpoints:
+## Dashboard
+
+Start the server:
+
+```powershell
+node src/server.js
+```
+
+Then open:
+
+- `http://localhost:3000/`
+
+The dashboard now includes:
+
+- runtime snapshot and provider state
+- workflow runner
+- fixture/live mode selector
+- symbol input
+- TradingView chart capture
+- signal visualization for entry, stop, targets, and key levels
+- full report, execution plan, and raw JSON
+
+## HTTP API
 
 - `GET /health`
+- `GET /status`
 - `GET /agents`
 - `GET /workflows`
 - `GET /fixtures`
 - `POST /run`
+- `GET /vision/latest`
+- `POST /vision/capture`
+- `GET /screenshots/<file>`
 
 Example `POST /run` body:
 
 ```json
 {
   "workflowName": "morningBriefing",
-  "fixtureName": "bullishRetest"
+  "fixtureName": "bullishRetest",
+  "marketMode": "fixture",
+  "symbol": "XAU/USD"
 }
 ```
 
-## Architecture
+## Live Gold Data
 
-The high-level pipeline is:
+The system can use Alpha Vantage as a live gold provider.
 
-1. Load workflow request and market snapshot
-2. Validate data integrity
-3. Run technical and fundamental specialist agents
-4. Synthesize regime and confluence
-5. Construct a precision trade candidate or no-trade state
-6. Run risk qualification and critic review
-7. Generate execution guidance and a user-facing report
+Set:
+
+- `AURUM_LIVE=1`
+- `ALPHAVANTAGE_KEY=YOUR_KEY`
+
+Then run:
+
+```powershell
+node src/server.js
+```
+
+Current live coverage:
+
+- live gold spot quote via Alpha Vantage commodities API
+- daily gold history when available
+- optional intraday coverage if Alpha Vantage returns intraday data for your plan
+
+Important:
+
+- If only partial live data is available, the system stays honest and marks coverage as degraded.
+- In degraded live mode, the report may prefer `no_trade` rather than pretend to have a strong intraday signal.
+
+## TradingView Browser Control and Vision
+
+### 1. Install optional browser automation dependencies
+
+```powershell
+cmd /c npm install
+npx playwright install chromium
+```
+
+### 2. Capture a TradingView chart from the CLI
+
+```powershell
+node src/vision/tradingview.js --symbol=XAUUSD
+```
+
+This saves a screenshot under `screenshots/`.
+
+Useful options:
+
+- `--headless=false` to open a visible browser window
+- `--exchange=OANDA` to change the TradingView symbol prefix
+- `--output=screenshots/my-chart.png` to choose the output file
+
+### 3. Optional chart-vision analysis
+
+If you want the system to inspect the captured chart image with a vision model, set:
+
+- `OPENAI_API_KEY=YOUR_KEY`
+- optional `AURUM_VISION_MODEL=gpt-4.1-mini`
+
+Then use the dashboard capture button or call:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/vision/capture -ContentType "application/json" -Body '{"symbol":"XAUUSD"}'
+```
+
+The server will:
+
+- open TradingView through Playwright
+- capture a screenshot
+- save it under `screenshots/`
+- optionally send the image to the configured vision model
+
+## Scripts
+
+- `npm run start`
+- `npm run server`
+- `npm run vision:capture`
+- `npm test`
+
+If PowerShell blocks `npm`, use:
+
+- `cmd /c npm run server`
+- `cmd /c npm test`
+
+## Install Guide
+
+Plain-English setup instructions are in [INSTALL.md](INSTALL.md).
 
 ## Project Layout
 
-- `src/core/` runtime orchestration, workflow helpers, validation, logging
-- `src/providers/` provider abstractions and mock data providers
-- `src/prompts/` coordinator and specialist agent prompt/personality definitions
-- `src/agents/technical/` technical analysis specialists
+- `src/core/` runtime orchestration and workflow execution
+- `src/providers/` fixture and live market providers
+- `src/agents/technical/` technical-analysis specialists
 - `src/agents/fundamental/` macro and contextual specialists
 - `src/agents/signal/` confluence, trade construction, risk, and critic agents
-- `src/agents/reporting/` report generation and presentation agents
-- `src/domain/` shared analytical helpers
-- `fixtures/` deterministic snapshots for offline execution and testing
-- `test/` integration and workflow tests
+- `src/agents/reporting/` trader-facing reports
+- `src/vision/` TradingView capture and optional vision-model analysis
+- `web/` local dashboard
+- `fixtures/` offline scenarios
+- `test/` test suite
 
 ## Safety Notes
 
-- The system is designed for decision support, not guaranteed outcomes.
-- It prefers no-trade over low-quality trade construction.
-- Event risk and unresolved contradictions should suppress signals rather than produce forced conviction.
+- This is decision-support software, not guaranteed financial advice.
+- The system is designed to prefer no-trade over weak trade construction.
+- Event risk, contradictory evidence, or degraded live coverage should reduce or suppress signal quality.
 
-## GitHub Publishing
+## GitHub
 
-This repo is ready to be published, but there is currently no GitHub remote connected in this workspace.
-
-Use [GITHUB_SETUP.md](GITHUB_SETUP.md) for a plain-English guide to:
-
-- create a GitHub repository
-- connect this local repo to GitHub
-- push the code
-- publish the documentation
+Publishing instructions are in [GITHUB_SETUP.md](GITHUB_SETUP.md).

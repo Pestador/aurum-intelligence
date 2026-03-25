@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aurum Intelligence Dashboard</title>
+  <link rel="stylesheet" href="/web/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">Aurum Intelligence</div>
+      <h1>Gold Signal Console</h1>
+    </div>
+    <div class="status">
+      <span id="mode-pill" class="pill pill-muted">Mode: unknown</span>
+      <span id="health-status" class="pill">Checking...</span>
+      <button id="refresh-health" class="ghost">Refresh</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card card-span-2">
+      <div class="card-head">
+        <div>
+          <h2>Runtime Snapshot</h2>
+          <p class="muted small">Live mode awareness, provider health, and workflow coverage at a glance.</p>
+        </div>
+      </div>
+      <div class="status-grid">
+        <div class="status-block">
+          <span class="status-label">Mode</span>
+          <strong id="runtime-mode">Unknown</strong>
+          <span id="runtime-source" class="muted small">No data loaded yet.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Providers</span>
+          <strong id="runtime-providers">0</strong>
+          <span id="runtime-provider-note" class="muted small">Provider health will appear here.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Workflows</span>
+          <strong id="runtime-workflows">0</strong>
+          <span id="runtime-workflow-note" class="muted small">Available analysis workflows.</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Fixtures</span>
+          <strong id="runtime-fixtures">0</strong>
+          <span id="runtime-fixture-note" class="muted small">Offline scenarios ready to run.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Run Analysis</h2>
+      <div class="grid">
+        <label>
+          <span class="label">Market Mode</span>
+          <select id="market-mode-select">
+            <option value="fixture">Fixture</option>
+            <option value="live">Live</option>
+          </select>
+        </label>
+        <label>
+          <span class="label">Workflow</span>
+          <select id="workflow-select"></select>
+        </label>
+        <label>
+          <span class="label">Fixture</span>
+          <select id="fixture-select"></select>
+        </label>
+        <label>
+          <span class="label">Symbol</span>
+          <input id="market-symbol-input" type="text" value="XAU/USD" autocomplete="off" />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="run-btn">Run</button>
+        <span id="run-status" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>TradingView Vision</h2>
+          <p class="muted small">Capture a chart screenshot for symbol-level review when the backend endpoint is available.</p>
+        </div>
+      </div>
+      <div class="grid">
+        <label>
+          <span class="label">Symbol</span>
+          <input id="vision-symbol" type="text" value="XAUUSD" autocomplete="off" />
+        </label>
+        <label>
+          <span class="label">Capture Source</span>
+          <input id="vision-source" type="text" value="TradingView" disabled />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="vision-btn" class="accent-secondary">Capture Chart</button>
+        <span id="vision-status" class="muted">Waiting for a capture request.</span>
+      </div>
+      <div class="vision-preview" aria-live="polite">
+        <img id="vision-image" alt="TradingView chart preview" />
+        <div id="vision-placeholder" class="vision-placeholder">
+          <strong>Chart preview will appear here.</strong>
+          <span class="muted small">If the capture endpoint returns an image URL, the screenshot will render here.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card card-span-2">
+      <div class="card-head">
+        <div>
+          <h2>Signal Visualization</h2>
+          <p class="muted small">A compact map of entry, stop, targets, and nearby key levels from the most recent run.</p>
+        </div>
+      </div>
+      <div id="signal-visual" class="signal-visual empty">
+        <div class="signal-empty">
+          <strong>No signal loaded yet.</strong>
+          <span class="muted small">Run a workflow to see the entry stack and price levels.</span>
+        </div>
+      </div>
+      <div id="signal-legend" class="signal-legend"></div>
+    </section>
+
+    <section class="card card-span-2">
+      <h2>Result</h2>
+      <div id="result-headline" class="headline muted">No run yet.</div>
+      <div id="result-summary" class="muted small"></div>
+      <div id="result-body" class="result-body"></div>
+    </section>
+
+    <section class="card">
+      <h2>Execution Plan</h2>
+      <div id="execution-body" class="result-body muted">Run a workflow to see an execution plan.</div>
+    </section>
+
+    <section class="card card-span-2">
+      <h2>Raw Payload</h2>
+      <pre id="raw-json" class="codeblock muted">Run a workflow to view JSON output.</pre>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Decision-support only. No guaranteed outcomes.</span>
+  </footer>
+
+  <script src="/web/app.js" type="module"></script>
+</body>
+</html>

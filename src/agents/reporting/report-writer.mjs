@@ -17,6 +17,7 @@ You must not inflate confidence or hide failed gates. State the outcome plainly 
     const criticReview = input.criticReview ?? null;
     const executionPlan = input.executionPlan ?? null;
     const snapshot = input.marketSnapshot ?? {};
+    const liveData = snapshot.liveData ?? null;
 
     const headline = finalStatus === "approved"
       ? "Approved Gold Signal"
@@ -31,6 +32,7 @@ You must not inflate confidence or hide failed gates. State the outcome plainly 
         title: "Market Context",
         body: [
           `Symbol: ${snapshot.symbol ?? "XAU/USD"}`,
+          `Source: ${snapshot.source ?? "unknown"}`,
           `Session: ${snapshot.session?.name ?? "unknown"}`,
           `Price: ${snapshot.price?.current ?? "n/a"}`,
         ],
@@ -54,6 +56,17 @@ You must not inflate confidence or hide failed gates. State the outcome plainly 
       },
     ];
 
+    if (liveData) {
+      sections.unshift({
+        title: "Data Coverage",
+        body: [
+          `Mode: ${liveData.mode ?? "unknown"}`,
+          ...(liveData.degraded ? ["Coverage is degraded, so signal confidence should be treated more cautiously."] : []),
+          ...((liveData.notes ?? []).slice(0, 4)),
+        ],
+      });
+    }
+
     if (executionPlan) {
       sections.push({
         title: "Execution Plan",
@@ -74,7 +87,9 @@ You must not inflate confidence or hide failed gates. State the outcome plainly 
           ? "The signal cleared the technical, fundamental, risk, and critic gates."
           : finalStatus === "conditional"
             ? "The signal is usable but should be treated with caution."
-            : "The system prefers no-trade over a low-quality setup.",
+            : liveData?.degraded
+              ? "The system prefers no-trade because live data coverage is incomplete or the setup quality is too weak."
+              : "The system prefers no-trade over a low-quality setup.",
       sections,
       confidence: finalStatus === "approved" ? 0.92 : finalStatus === "conditional" ? 0.76 : 0.96,
     });

@@ -222,13 +222,14 @@ function createMarketDataAgent() {
       return createAgentReport({
         agentName: "market-data",
         status: snapshot.health?.ok === false ? "rejected" : "completed",
-        summary: `Loaded ${snapshot.symbol || "XAU/USD"} snapshot for ${context.userRequest?.fixtureName || "default"} scenario.`,
+        summary: `Loaded ${snapshot.symbol || "XAU/USD"} snapshot from ${snapshot.source || "market-provider"} (${snapshot.liveData?.mode || "unknown"} mode).`,
         evidence: [snapshot],
         confidence: snapshot.health?.ok === false ? 0.2 : 0.95,
         metadata: {
           source: snapshot.source || "fixture-market-provider",
           session: snapshot.session?.name || snapshot.session || "unknown",
           fixtureName: context.userRequest?.fixtureName || "bullishRetest",
+          marketMode: snapshot.liveData?.mode || context.userRequest?.marketMode || "fixture",
         },
       });
     },
